@@ -199,19 +199,35 @@ jobs:
         run: |
           set -euxo pipefail
           rm -rf /tmp/clangrepo /tmp/gccrepo
-          if git clone --filter=blob:none --no-checkout --depth 1 -b "${TOOLCHAIN_BRANCH}" \
-               "${TOOLCHAIN_REPO}" /tmp/clangrepo 2>/tmp/clone-clang.err; then
-            echo "cloned toolchain branch ${TOOLCHAIN_BRANCH}"
-          else
-            echo "branch clone failed, try default branch"
-            git clone --filter=blob:none --no-checkout --depth 1 "${TOOLCHAIN_REPO}" /tmp/clangrepo
+          FOUND=0
+          for BR in "${TOOLCHAIN_BRANCH}" android-12.0.0_r1 android-11.0.0_r1 master main; do
+            echo "== trying clang branch: $BR =="
+            rm -rf /tmp/clangrepo
+            if ! git clone --filter=blob:none --no-checkout --depth 1 -b "$BR" \
+                 "${TOOLCHAIN_REPO}" /tmp/clangrepo 2>/tmp/clone-clang.err; then
+              echo "branch $BR not available"
+              continue
+            fi
+            cd /tmp/clangrepo
+            if git ls-tree -d --name-only HEAD | grep -qx "clang-${TOOLCHAIN_REF}"; then
+              git sparse-checkout init --cone
+              git sparse-checkout set "clang-${TOOLCHAIN_REF}"
+              git checkout
+              FOUND=1
+              echo "clang-${TOOLCHAIN_REF} found on branch ${BR}"
+              break
+            fi
+            echo "clang-${TOOLCHAIN_REF} not in branch ${BR}"
+            cd ..
+          done
+          if [ "$FOUND" != "1" ]; then
+            echo "::error::clang-${TOOLCHAIN_REF} not found in any known branch"
+            echo "available clang dirs on last branch:"
+            git -C /tmp/clangrepo ls-tree -d --name-only HEAD | grep '^clang-' || true
+            exit 1
           fi
-          cd /tmp/clangrepo
-          git sparse-checkout init --cone
-          git sparse-checkout set "clang-${TOOLCHAIN_REF}"
-          git checkout
           CLANG="/tmp/clangrepo/clang-${TOOLCHAIN_REF}/bin/clang"
-          [ -x "$CLANG" ] || { echo "::error::clang not found at $CLANG"; ls; exit 1; }
+          [ -x "$CLANG" ] || { echo "::error::clang not found at $CLANG"; exit 1; }
           "$CLANG" --version
           echo "CLANG=${CLANG}" >> "$GITHUB_ENV"
 
