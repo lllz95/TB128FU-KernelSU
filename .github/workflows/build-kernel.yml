@@ -122,6 +122,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 240
     env:
+      GH_TOKEN: ${{ github.token }}
       KERNEL_REPO: ${{ github.event.inputs.kernel_repo }}
       KERNEL_BRANCH: ${{ github.event.inputs.kernel_branch || 'main' }}
       KERNEL_PKG: ${{ github.event.inputs.kernel_pkg }}
