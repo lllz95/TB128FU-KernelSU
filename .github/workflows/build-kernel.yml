@@ -376,8 +376,8 @@ jobs:
             if echo "${BOOT_IMG_URL}" | grep -qE '^https://github.com/[^/]+/[^/]+/releases/download/'; then
               ORG=$(echo "$BOOT_IMG_URL" | cut -d/ -f4)
               REPO=$(echo "$BOOT_IMG_URL" | cut -d/ -f5)
-              TAG=$(echo "$BOOT_IMG_URL" | cut -d/ -f7)
-              ASSET=$(echo "$BOOT_IMG_URL" | cut -d/ -f8)
+              TAG=$(echo "$BOOT_IMG_URL" | cut -d/ -f8)
+              ASSET=$(echo "$BOOT_IMG_URL" | cut -d/ -f9)
               gh release download "$TAG" -p "$ASSET" -O /tmp/boot.img -R "$ORG/$REPO" --clobber
             else
               curl -fL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/boot.img "${BOOT_IMG_URL}"
@@ -504,8 +504,8 @@ jobs:
               if echo "${BOOT_IMG_URL}" | grep -qE '^https://github.com/[^/]+/[^/]+/releases/download/'; then
                 ORG=$(echo "$BOOT_IMG_URL" | cut -d/ -f4)
                 REPO=$(echo "$BOOT_IMG_URL" | cut -d/ -f5)
-                TAG=$(echo "$BOOT_IMG_URL" | cut -d/ -f7)
-                ASSET=$(echo "$BOOT_IMG_URL" | cut -d/ -f8)
+                TAG=$(echo "$BOOT_IMG_URL" | cut -d/ -f8)
+                ASSET=$(echo "$BOOT_IMG_URL" | cut -d/ -f9)
                 gh release download "$TAG" -p "$ASSET" -O /tmp/boot.img -R "$ORG/$REPO" --clobber
               else
                 curl -fL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/boot.img "${BOOT_IMG_URL}"
