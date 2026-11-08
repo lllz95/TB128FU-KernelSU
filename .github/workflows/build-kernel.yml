@@ -41,13 +41,13 @@ on:
         description: "gcc 仓库分支 / tag"
         default: "main"
         required: false
-      # ---------- 原厂配置 ----------
+      # ---------- 内核配置 ----------
       defconfig:
         description: "内核源码 arch/arm64/configs 下的 defconfig 名称（只需文件名）"
         default: ""
         required: false
       boot_img_url:
-        description: "当前系统 boot.img 直链；defconfig 为空时用它提取配置"
+        description: "当前系统 boot.img 直链；defconfig 为空时用它提取配置并生成修补后的 boot"
         default: ""
         required: false
       # ---------- techpack ----------
@@ -67,10 +67,9 @@ on:
         description: "编译内核时短路 techpack，避免驱动编进内核"
         default: "true"
         required: false
-      # ---------- KSU / SuSFS ----------
-
+      # ---------- Root / 隐藏 ----------
       ksu_ref:
-        description: "ReSukiSU 版本"
+        description: "ReSukiSU（现名 BakaSU）版本"
         default: "v4.2.0-rc3"
         required: false
       enable_susfs:
@@ -78,14 +77,13 @@ on:
         default: "false"
         required: false
       susfs_version:
-        description: "latest = 本仓库内置 v2.3.0；custom 时使用下面的补丁直链"
-        default: "latest"
+        description: "default = 本仓库内置 v2.3.0；custom 时使用下面的补丁直链"
+        default: "default"
         required: false
       susfs_patch_url:
         description: "自定义 SuSFS 内核补丁直链（susfs_version=custom 时）"
         default: ""
         required: false
-
       enable_path_umount:
         description: "回移 path_umount（4.19 必需）"
         default: "true"
@@ -139,12 +137,10 @@ jobs:
       TECHPACK_REPO: ${{ github.event.inputs.techpack_repo }}
       TECHPACK_BRANCH: ${{ github.event.inputs.techpack_branch || 'main' }}
       STUB_TECHPACK: ${{ github.event.inputs.stub_techpack || 'true' }}
-      KSU_VARIANT: resukisu
       KSU_REF: ${{ github.event.inputs.ksu_ref || 'v4.2.0-rc3' }}
       ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs || 'false' }}
-      SUSFS_VERSION: ${{ github.event.inputs.susfs_version || 'latest' }}
+      SUSFS_VERSION: ${{ github.event.inputs.susfs_version || 'default' }}
       SUSFS_PATCH_URL: ${{ github.event.inputs.susfs_patch_url }}
-
       ENABLE_PATH_UMOUNT: ${{ github.event.inputs.enable_path_umount || 'true' }}
       ENABLE_HIDE_STUFF: ${{ github.event.inputs.enable_hide_stuff || 'true' }}
       DEBUG_SYSLOG: ${{ github.event.inputs.debug_syslog || 'false' }}
@@ -171,7 +167,19 @@ jobs:
             tar -xf /tmp/kernel-src.tar.gz -C src
           elif [ -n "${KERNEL_REPO:-}" ]; then
             echo "cloning kernel source: ${KERNEL_REPO} (${KERNEL_BRANCH})"
-            git clone --depth 1 -b "${KERNEL_BRANCH}" "${KERNEL_REPO}" src
+            git clone --filter=blob:none --no-checkout --depth 1 -b "${KERNEL_BRANCH}" "${KERNEL_REPO}" src
+            cd src
+            SPARSE="${KERNEL_SUBDIR:-}"
+            if [ -z "$SPARSE" ]; then
+              SPARSE=$(git ls-tree -d --name-only HEAD | grep -E '^kernel(-|_)?[0-9]|^kernel$' | head -1 || true)
+            fi
+            if [ -n "$SPARSE" ]; then
+              echo "sparse checkout: $SPARSE"
+              git sparse-checkout init --cone
+              git sparse-checkout set "$SPARSE"
+            fi
+            git checkout
+            cd ..
             rm -rf src/.git
           else
             echo "::error::kernel_repo 和 kernel_pkg 至少填写一个"
@@ -191,7 +199,6 @@ jobs:
         run: |
           set -euxo pipefail
           rm -rf /tmp/clangrepo /tmp/gccrepo
-          # clang：sparse checkout 只拉需要的版本目录
           if git clone --filter=blob:none --no-checkout --depth 1 -b "${TOOLCHAIN_BRANCH}" \
                "${TOOLCHAIN_REPO}" /tmp/clangrepo 2>/tmp/clone-clang.err; then
             echo "cloned toolchain branch ${TOOLCHAIN_BRANCH}"
@@ -208,7 +215,6 @@ jobs:
           "$CLANG" --version
           echo "CLANG=${CLANG}" >> "$GITHUB_ENV"
 
-          # gcc 4.9
           if git clone --depth 1 -b "${GCC_REF}" "${GCC_REPO}" /tmp/gccrepo 2>/tmp/clone-gcc.err; then
             echo "cloned gcc branch ${GCC_REF}"
           else
@@ -247,7 +253,6 @@ jobs:
           done
 
       - name: Integrate ReSukiSU (BakaSU)
-        if: env.KSU_VARIANT == 'resukisu'
         run: |
           set -euxo pipefail
           cd "${KERNEL_ROOT}"
@@ -265,7 +270,7 @@ jobs:
           grep -n '^int path_umount' fs/namespace.c | head -3
 
       - name: Apply manual hooks (no SuSFS)
-        if: env.KSU_VARIANT == 'resukisu' && env.ENABLE_SUSFS != 'true'
+        if: env.ENABLE_SUSFS != 'true'
         run: |
           set -o pipefail
           cd "${KERNEL_ROOT}"
@@ -343,32 +348,30 @@ jobs:
           fi
           echo "DEFCONFIG_PATH=${DEF}" >> "$GITHUB_ENV"
 
-          if [ "${KSU_VARIANT}" = "resukisu" ]; then
-            {
-              echo ''
-              echo '# ReSukiSU (BakaSU)'
-              echo 'CONFIG_KSU=y'
-              echo 'CONFIG_KSU_MANUAL_HOOK=y'
-              echo 'CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK=y'
-              echo 'CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK=y'
-              echo 'CONFIG_KSU_MANUAL_HOOK_AUTO_INPUT_HOOK=y'
-              echo 'CONFIG_THREAD_INFO_IN_TASK=y'
-              if [ "${ENABLE_SUSFS}" = "true" ]; then
-                echo 'CONFIG_KSU_SUSFS=y'
-                echo 'CONFIG_KSU_SUSFS_SUS_PATH=y'
-                echo 'CONFIG_KSU_SUSFS_SUS_MOUNT=y'
-                echo 'CONFIG_KSU_SUSFS_SUS_KSTAT=y'
-                echo 'CONFIG_KSU_SUSFS_SPOOF_UNAME=y'
-                echo 'CONFIG_KSU_SUSFS_ENABLE_LOG=y'
-                echo 'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y'
-                echo 'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y'
-                echo 'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y'
-                echo 'CONFIG_KSU_SUSFS_SUS_MAP=y'
-              else
-                echo '# CONFIG_KSU_SUSFS is not set'
-              fi
-            } >> "$DEF"
-          fi
+          {
+            echo ''
+            echo '# ReSukiSU (BakaSU)'
+            echo 'CONFIG_KSU=y'
+            echo 'CONFIG_KSU_MANUAL_HOOK=y'
+            echo 'CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK=y'
+            echo 'CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK=y'
+            echo 'CONFIG_KSU_MANUAL_HOOK_AUTO_INPUT_HOOK=y'
+            echo 'CONFIG_THREAD_INFO_IN_TASK=y'
+            if [ "${ENABLE_SUSFS}" = "true" ]; then
+              echo 'CONFIG_KSU_SUSFS=y'
+              echo 'CONFIG_KSU_SUSFS_SUS_PATH=y'
+              echo 'CONFIG_KSU_SUSFS_SUS_MOUNT=y'
+              echo 'CONFIG_KSU_SUSFS_SUS_KSTAT=y'
+              echo 'CONFIG_KSU_SUSFS_SPOOF_UNAME=y'
+              echo 'CONFIG_KSU_SUSFS_ENABLE_LOG=y'
+              echo 'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y'
+              echo 'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y'
+              echo 'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y'
+              echo 'CONFIG_KSU_SUSFS_SUS_MAP=y'
+            else
+              echo '# CONFIG_KSU_SUSFS is not set'
+            fi
+          } >> "$DEF"
           echo 'CONFIG_LOCALVERSION="-perf+"' >> "$DEF"
           echo '# CONFIG_MODULE_SIG_FORCE is not set' >> "$DEF"
           tail -20 "$DEF"
@@ -390,7 +393,6 @@ jobs:
           rm -rf modout
           make O=out ARCH=arm64 CC="${CLANG}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" \
             INSTALL_MOD_PATH="$PWD/modout" modules_install 2>&1 | tee -a /tmp/modules.log
-          # 恢复 techpack Makefile（不影响产物）
           for d in techpack/wlan techpack/audio; do
             [ -f "$d/Makefile.stubbed" ] && mv "$d/Makefile.stubbed" "$d/Makefile"
           done
@@ -426,7 +428,39 @@ jobs:
             tar -czf "$GITHUB_WORKSPACE/dist/ext_modules.tar.gz" -C "$GITHUB_WORKSPACE/dist/extmods" .
           fi
           cd "$GITHUB_WORKSPACE/dist"
+          {
+            echo "kernel_repo=${KERNEL_REPO}"
+            echo "kernel_branch=${KERNEL_BRANCH}"
+            echo "kernel_pkg=${KERNEL_PKG}"
+            echo "kernel_subdir=${KERNEL_SUBDIR}"
+            echo "toolchain_repo=${TOOLCHAIN_REPO}"
+            echo "toolchain_branch=${TOOLCHAIN_BRANCH}"
+            echo "toolchain_ref=${TOOLCHAIN_REF}"
+            echo "gcc_repo=${GCC_REPO}"
+            echo "gcc_ref=${GCC_REF}"
+            echo "defconfig=${DEFCONFIG_NAME}"
+            echo "boot_img_url=${BOOT_IMG_URL}"
+            echo "use_techpack=${USE_TECHPACK}"
+            echo "techpack_repo=${TECHPACK_REPO}"
+            echo "techpack_branch=${TECHPACK_BRANCH}"
+            echo "stub_techpack=${STUB_TECHPACK}"
+            echo "ksu_ref=${KSU_REF}"
+            echo "enable_susfs=${ENABLE_SUSFS}"
+            echo "susfs_version=${SUSFS_VERSION}"
+            echo "susfs_patch_url=${SUSFS_PATCH_URL}"
+            echo "enable_path_umount=${ENABLE_PATH_UMOUNT}"
+            echo "enable_hide_stuff=${ENABLE_HIDE_STUFF}"
+            echo "debug_syslog=${DEBUG_SYSLOG}"
+            echo "force_modules=${FORCE_MODULES}"
+            echo "ext_modules=${EXT_MODULES}"
+            echo "ext_module_dirs=${EXT_MODULE_DIRS}"
+          } > "本次参数记录.txt"
+          if [ -n "${BOOT_IMG_URL:-}" ]; then
+            [ -f /tmp/boot.img ] || curl -fL --retry 3 -o /tmp/boot.img "${BOOT_IMG_URL}"
+            python3 "$GITHUB_WORKSPACE/scripts/repack_boot.py" /tmp/boot.img Image.gz boot-patched.img
+          fi
           sha256sum Image.gz config.txt modules.tar.gz > SHA256SUMS.txt
+          [ -f boot-patched.img ] && sha256sum boot-patched.img >> SHA256SUMS.txt
           ls -la
 
       - name: Package AnyKernel3
@@ -455,7 +489,9 @@ jobs:
             cat /tmp/config-check.txt 2>/dev/null || true
             echo '```'
           } > /tmp/notes.md
-          gh release create "$TAG" dist/*.zip dist/Image.gz dist/config.txt dist/*.tar.gz dist/SHA256SUMS.txt \
+          FILES="dist/*.zip dist/Image.gz dist/config.txt dist/*.tar.gz dist/SHA256SUMS.txt dist/本次参数记录.txt"
+          [ -f dist/boot-patched.img ] && FILES="$FILES dist/boot-patched.img"
+          gh release create "$TAG" $FILES \
             --title "TB128FU kernel build #${GITHUB_RUN_NUMBER}" \
             --notes-file /tmp/notes.md --repo "$GITHUB_REPOSITORY"
           echo "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" >> "$GITHUB_STEP_SUMMARY"
