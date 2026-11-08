@@ -244,7 +244,7 @@ jobs:
           "$CLANG" --version
           echo "CLANG=${CLANG}" >> "$GITHUB_ENV"
 
-          if [ -x "$SRC_GCC/aarch64-linux-android-gcc" ]; then
+          if [ -x "$SRC_GCC/aarch64-linux-android-ld" ]; then
             GCC_BIN="$SRC_GCC"
             echo "using gcc from source repository: $GCC_BIN"
           else
@@ -256,7 +256,7 @@ jobs:
             fi
             GCC_BIN=/tmp/gccrepo/bin
           fi
-          ls "$GCC_BIN/aarch64-linux-android-gcc"
+          ls "$GCC_BIN/aarch64-linux-android-ld"
           echo "GCC_BIN=${GCC_BIN}" >> "$GITHUB_ENV"
 
       - name: Fetch techpack from additional repository
