@@ -1,0 +1,482 @@
+name: Build TB128FU kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      # ---------- 内核源码 ----------
+      kernel_repo:
+        description: "内核源码仓库链接（内核源码仓库或设备源码仓库均可）"
+        default: ""
+        required: false
+      kernel_branch:
+        description: "内核源码分支 / tag"
+        default: "main"
+        required: false
+      kernel_pkg:
+        description: "内核源码包直链（内核源码包或设备源码包均可）"
+        default: ""
+        required: false
+      kernel_subdir:
+        description: "内核所在目录；留空自动识别"
+        default: ""
+        required: false
+      # ---------- 工具链 ----------
+      toolchain_repo:
+        description: "工具链官方仓库（AOSP clang prebuilts）"
+        default: "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86"
+        required: false
+      toolchain_branch:
+        description: "工具链仓库分支（也可填提交哈希）"
+        default: "main"
+        required: false
+      toolchain_ref:
+        description: "clang 版本目录（如 r450784e）；若编译报错请更换其他版本"
+        default: "r450784e"
+        required: false
+      gcc_repo:
+        description: "aarch64 gcc 4.9 官方仓库"
+        default: "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
+        required: false
+      gcc_ref:
+        description: "gcc 仓库分支 / tag"
+        default: "main"
+        required: false
+      # ---------- 原厂配置 ----------
+      defconfig:
+        description: "内核源码 arch/arm64/configs 下的 defconfig 名称（只需文件名）"
+        default: ""
+        required: false
+      boot_img_url:
+        description: "当前系统 boot.img 直链；defconfig 为空时用它提取配置"
+        default: ""
+        required: false
+      # ---------- techpack ----------
+      use_techpack:
+        description: "内核源码主仓库 techpack 不全时，从附加仓库拉取"
+        default: "false"
+        required: false
+      techpack_repo:
+        description: "第三方内核源码仓库链接（techpack 来源）"
+        default: ""
+        required: false
+      techpack_branch:
+        description: "techpack 仓库分支"
+        default: "main"
+        required: false
+      stub_techpack:
+        description: "编译内核时短路 techpack，避免驱动编进内核"
+        default: "true"
+        required: false
+      # ---------- KSU / SuSFS ----------
+      ksu_variant:
+        description: "resukisu = ReSukiSU（现已改名 BakaSU）"
+        default: "resukisu"
+        required: false
+      ksu_ref:
+        description: "ReSukiSU 版本"
+        default: "v4.2.0-rc3"
+        required: false
+      enable_susfs:
+        description: "是否添加 SuSFS"
+        default: "false"
+        required: false
+      susfs_version:
+        description: "latest = 本仓库内置 v2.3.0；custom 时使用下面的补丁直链"
+        default: "latest"
+        required: false
+      susfs_patch_url:
+        description: "自定义 SuSFS 内核补丁直链（susfs_version=custom 时）"
+        default: ""
+        required: false
+      susfs_hook_url:
+        description: "自定义 SuSFS inline hook 脚本直链（可选）"
+        default: ""
+        required: false
+      enable_path_umount:
+        description: "回移 path_umount（4.19 必需）"
+        default: "true"
+        required: false
+      enable_hide_stuff:
+        description: "打 hide_stuff 清理痕迹（最后执行）"
+        default: "true"
+        required: false
+      debug_syslog:
+        description: "允许 adb shell 读取内核日志（调试用）"
+        default: "false"
+        required: false
+      force_modules:
+        description: "跳过模块 vermagic/CRC 校验（调试用）"
+        default: "false"
+        required: false
+      # ---------- 构建 ----------
+      ext_modules:
+        description: "是否额外编译外部模块（.ko）"
+        default: "false"
+        required: false
+      ext_module_dirs:
+        description: "外编目录，空格分隔"
+        default: "techpack/wlan"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    env:
+      KERNEL_REPO: ${{ github.event.inputs.kernel_repo }}
+      KERNEL_BRANCH: ${{ github.event.inputs.kernel_branch || 'main' }}
+      KERNEL_PKG: ${{ github.event.inputs.kernel_pkg }}
+      KERNEL_SUBDIR: ${{ github.event.inputs.kernel_subdir }}
+      TOOLCHAIN_REPO: ${{ github.event.inputs.toolchain_repo }}
+      TOOLCHAIN_BRANCH: ${{ github.event.inputs.toolchain_branch || 'main' }}
+      TOOLCHAIN_REF: ${{ github.event.inputs.toolchain_ref || 'r450784e' }}
+      GCC_REPO: ${{ github.event.inputs.gcc_repo }}
+      GCC_REF: ${{ github.event.inputs.gcc_ref || 'main' }}
+      DEFCONFIG_NAME: ${{ github.event.inputs.defconfig }}
+      BOOT_IMG_URL: ${{ github.event.inputs.boot_img_url }}
+      USE_TECHPACK: ${{ github.event.inputs.use_techpack || 'false' }}
+      TECHPACK_REPO: ${{ github.event.inputs.techpack_repo }}
+      TECHPACK_BRANCH: ${{ github.event.inputs.techpack_branch || 'main' }}
+      STUB_TECHPACK: ${{ github.event.inputs.stub_techpack || 'true' }}
+      KSU_VARIANT: ${{ github.event.inputs.ksu_variant || 'resukisu' }}
+      KSU_REF: ${{ github.event.inputs.ksu_ref || 'v4.2.0-rc3' }}
+      ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs || 'false' }}
+      SUSFS_VERSION: ${{ github.event.inputs.susfs_version || 'latest' }}
+      SUSFS_PATCH_URL: ${{ github.event.inputs.susfs_patch_url }}
+      SUSFS_HOOK_URL: ${{ github.event.inputs.susfs_hook_url }}
+      ENABLE_PATH_UMOUNT: ${{ github.event.inputs.enable_path_umount || 'true' }}
+      ENABLE_HIDE_STUFF: ${{ github.event.inputs.enable_hide_stuff || 'true' }}
+      DEBUG_SYSLOG: ${{ github.event.inputs.debug_syslog || 'false' }}
+      FORCE_MODULES: ${{ github.event.inputs.force_modules || 'false' }}
+      EXT_MODULES: ${{ github.event.inputs.ext_modules || 'false' }}
+      EXT_MODULE_DIRS: ${{ github.event.inputs.ext_module_dirs || 'techpack/wlan' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev \
+            python3 git curl zip unzip xz-utils
+
+      - name: Fetch kernel source
+        run: |
+          set -euxo pipefail
+          rm -rf src && mkdir -p src
+          if [ -n "${KERNEL_PKG:-}" ]; then
+            echo "downloading kernel source package: ${KERNEL_PKG}"
+            curl -fL --retry 3 -o /tmp/kernel-src.tar.gz "${KERNEL_PKG}"
+            tar -xf /tmp/kernel-src.tar.gz -C src
+          elif [ -n "${KERNEL_REPO:-}" ]; then
+            echo "cloning kernel source: ${KERNEL_REPO} (${KERNEL_BRANCH})"
+            git clone --depth 1 -b "${KERNEL_BRANCH}" "${KERNEL_REPO}" src
+            rm -rf src/.git
+          else
+            echo "::error::kernel_repo 和 kernel_pkg 至少填写一个"
+            exit 1
+          fi
+
+      - name: Detect kernel root
+        run: |
+          set -euxo pipefail
+          KROOT=$(python3 scripts/detect_kernel_root.py src "${KERNEL_SUBDIR:-}" | tee /tmp/kroot.txt | tail -1)
+          echo "KERNEL_ROOT=${KROOT}" >> "$GITHUB_ENV"
+          cd "${KROOT}"
+          head -5 Makefile
+          grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL)' Makefile
+
+      - name: Fetch toolchain (online)
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/clangrepo /tmp/gccrepo
+          # clang：sparse checkout 只拉需要的版本目录
+          if git clone --filter=blob:none --no-checkout --depth 1 -b "${TOOLCHAIN_BRANCH}" \
+               "${TOOLCHAIN_REPO}" /tmp/clangrepo 2>/tmp/clone-clang.err; then
+            echo "cloned toolchain branch ${TOOLCHAIN_BRANCH}"
+          else
+            echo "branch clone failed, try default branch"
+            git clone --filter=blob:none --no-checkout --depth 1 "${TOOLCHAIN_REPO}" /tmp/clangrepo
+          fi
+          cd /tmp/clangrepo
+          git sparse-checkout init --cone
+          git sparse-checkout set "clang-${TOOLCHAIN_REF}"
+          git checkout
+          CLANG="/tmp/clangrepo/clang-${TOOLCHAIN_REF}/bin/clang"
+          [ -x "$CLANG" ] || { echo "::error::clang not found at $CLANG"; ls; exit 1; }
+          "$CLANG" --version
+          echo "CLANG=${CLANG}" >> "$GITHUB_ENV"
+
+          # gcc 4.9
+          if git clone --depth 1 -b "${GCC_REF}" "${GCC_REPO}" /tmp/gccrepo 2>/tmp/clone-gcc.err; then
+            echo "cloned gcc branch ${GCC_REF}"
+          else
+            git clone --depth 1 "${GCC_REPO}" /tmp/gccrepo
+          fi
+          ls /tmp/gccrepo/bin/aarch64-linux-android-gcc
+          echo "GCC_BIN=/tmp/gccrepo/bin" >> "$GITHUB_ENV"
+
+      - name: Fetch techpack from additional repository
+        if: env.USE_TECHPACK == 'true'
+        run: |
+          set -euxo pipefail
+          [ -n "${TECHPACK_REPO:-}" ] || { echo "::error::use_techpack=true 但 techpack_repo 为空"; exit 1; }
+          rm -rf /tmp/techpack-src
+          git clone --depth 1 -b "${TECHPACK_BRANCH}" "${TECHPACK_REPO}" /tmp/techpack-src
+          if [ -d /tmp/techpack-src/techpack ]; then
+            cp -a /tmp/techpack-src/techpack "${KERNEL_ROOT}/"
+          else
+            TP=$(find /tmp/techpack-src -maxdepth 3 -type d -name techpack | head -1)
+            [ -n "$TP" ] || { echo "::error::附加仓库中没有 techpack 目录"; exit 1; }
+            cp -a "$TP" "${KERNEL_ROOT}/"
+          fi
+          ls "${KERNEL_ROOT}/techpack"
+
+      - name: Stub techpack (avoid building vendor drivers into kernel)
+        if: env.STUB_TECHPACK == 'true'
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          for d in techpack/wlan techpack/audio; do
+            if [ -f "$d/Makefile" ] && [ ! -f "$d/Makefile.stubbed" ]; then
+              mv "$d/Makefile" "$d/Makefile.stubbed"
+              printf 'obj-y :=\n' > "$d/Makefile"
+              echo "stubbed $d"
+            fi
+          done
+
+      - name: Integrate ReSukiSU (BakaSU)
+        if: env.KSU_VARIANT == 'resukisu'
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          curl -fL --retry 3 -o /tmp/resukisu-setup.sh \
+            https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh
+          bash /tmp/resukisu-setup.sh "${KSU_REF}" 2>&1 | tee /tmp/resukisu-setup.log
+          ls -la KernelSU | head -20
+
+      - name: Backport path_umount
+        if: env.ENABLE_PATH_UMOUNT == 'true'
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          bash "$GITHUB_WORKSPACE/scripts/path_umount_backport.sh" .
+          grep -n '^int path_umount' fs/namespace.c | head -3
+
+      - name: Apply manual hooks (no SuSFS)
+        if: env.KSU_VARIANT == 'resukisu' && env.ENABLE_SUSFS != 'true'
+        run: |
+          set -o pipefail
+          cd "${KERNEL_ROOT}"
+          patch -p1 -F3 --no-backup-if-mismatch --forward \
+            < "$GITHUB_WORKSPACE/patches/ksu_manual_hooks_4.19_grass.patch" 2>&1 | tee /tmp/manual-hooks.log
+          find . -name '*.rej' -print | tee /tmp/rej-manual.txt
+          test ! -s /tmp/rej-manual.txt
+
+      - name: Apply SuSFS
+        if: env.ENABLE_SUSFS == 'true'
+        run: |
+          set -o pipefail
+          cd "${KERNEL_ROOT}"
+          cp fs/notify/fdinfo.c /tmp/fdinfo.c.orig
+          if [ "${SUSFS_VERSION}" = "custom" ]; then
+            [ -n "${SUSFS_PATCH_URL:-}" ] || { echo "::error::susfs_version=custom 但 susfs_patch_url 为空"; exit 1; }
+            curl -fL --retry 3 -o /tmp/susfs.patch "${SUSFS_PATCH_URL}"
+            patch -p1 -F3 --no-backup-if-mismatch --forward < /tmp/susfs.patch 2>&1 | tee /tmp/susfs-patch.log || true
+          else
+            echo "using bundled SuSFS v2.3.0"
+            patch -p1 -F3 --no-backup-if-mismatch --forward \
+              < "$GITHUB_WORKSPACE/patches/susfs_v2.3.0_4.19_grass.patch" 2>&1 | tee /tmp/susfs-patch.log || true
+            cp /tmp/fdinfo.c.orig fs/notify/fdinfo.c
+            python3 "$GITHUB_WORKSPACE/susfs/inotify_mask_backport.py"
+            python3 "$GITHUB_WORKSPACE/susfs/lenovo_4_19_adapt.py"
+            rm -f fs/namespace.c.rej fs/notify/fdinfo.c.rej
+          fi
+          find . -name '*.rej' -print | tee /tmp/rej-susfs.txt
+          echo "susfs rejects: $(wc -l < /tmp/rej-susfs.txt)"
+          if [ -n "${SUSFS_HOOK_URL:-}" ]; then
+            curl -fL --retry 3 -o /tmp/susfs-hooks.sh "${SUSFS_HOOK_URL}"
+            bash /tmp/susfs-hooks.sh 2>&1 | tee /tmp/susfs-hooks.log
+          else
+            bash "$GITHUB_WORKSPACE/patches/susfs_inline_hook_patches.sh" 2>&1 | tee /tmp/susfs-hooks.log
+          fi
+
+      - name: Hide KernelSU traces (hide_stuff)
+        if: env.ENABLE_HIDE_STUFF == 'true'
+        run: |
+          set -o pipefail
+          git clone -q --depth=1 https://github.com/ShirkNeko/SukiSU_patch.git /tmp/SukiSU_patch
+          cd "${KERNEL_ROOT}"
+          patch -p1 -F3 --no-backup-if-mismatch --forward \
+            < /tmp/SukiSU_patch/69_hide_stuff.patch 2>&1 | tee /tmp/hide-stuff.log || true
+          find . -name '*.rej' -print | tee /tmp/hide-rej.txt
+          echo "hide_stuff rejects: $(wc -l < /tmp/hide-rej.txt)"
+
+      - name: Optional patches (debug syslog / force modules)
+        if: env.DEBUG_SYSLOG == 'true' || env.FORCE_MODULES == 'true'
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          if [ "${DEBUG_SYSLOG}" = "true" ]; then
+            patch -p1 --no-backup-if-mismatch --forward \
+              < "$GITHUB_WORKSPACE/patches/debug_syslog.patch" 2>&1 | tee /tmp/debug-syslog.log
+          fi
+          if [ "${FORCE_MODULES}" = "true" ]; then
+            patch -p1 --no-backup-if-mismatch --forward \
+              < "$GITHUB_WORKSPACE/patches/module_force_load.patch" 2>&1 | tee /tmp/module-patch.log
+          fi
+
+      - name: Prepare kernel config
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          if [ -n "${DEFCONFIG_NAME:-}" ]; then
+            DEF="arch/arm64/configs/${DEFCONFIG_NAME}"
+            [ -f "$DEF" ] || { echo "::error::defconfig not found: $DEF"; exit 1; }
+            echo "using source-tree defconfig ${DEFCONFIG_NAME}"
+          elif [ -n "${BOOT_IMG_URL:-}" ]; then
+            echo "downloading boot image: ${BOOT_IMG_URL}"
+            curl -fL --retry 3 -o /tmp/boot.img "${BOOT_IMG_URL}"
+            python3 "$GITHUB_WORKSPACE/scripts/extract_ikconfig.py" /tmp/boot.img > /tmp/stock.config
+            cp /tmp/stock.config arch/arm64/configs/stock_defconfig
+            DEF="arch/arm64/configs/stock_defconfig"
+            echo "extracted config from boot image ($(wc -l < /tmp/stock.config) lines)"
+          else
+            echo "::error::请填写 defconfig 或 boot_img_url"
+            exit 1
+          fi
+          echo "DEFCONFIG_PATH=${DEF}" >> "$GITHUB_ENV"
+
+          if [ "${KSU_VARIANT}" = "resukisu" ]; then
+            {
+              echo ''
+              echo '# ReSukiSU (BakaSU)'
+              echo 'CONFIG_KSU=y'
+              echo 'CONFIG_KSU_MANUAL_HOOK=y'
+              echo 'CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK=y'
+              echo 'CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK=y'
+              echo 'CONFIG_KSU_MANUAL_HOOK_AUTO_INPUT_HOOK=y'
+              echo 'CONFIG_THREAD_INFO_IN_TASK=y'
+              if [ "${ENABLE_SUSFS}" = "true" ]; then
+                echo 'CONFIG_KSU_SUSFS=y'
+                echo 'CONFIG_KSU_SUSFS_SUS_PATH=y'
+                echo 'CONFIG_KSU_SUSFS_SUS_MOUNT=y'
+                echo 'CONFIG_KSU_SUSFS_SUS_KSTAT=y'
+                echo 'CONFIG_KSU_SUSFS_SPOOF_UNAME=y'
+                echo 'CONFIG_KSU_SUSFS_ENABLE_LOG=y'
+                echo 'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y'
+                echo 'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y'
+                echo 'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y'
+                echo 'CONFIG_KSU_SUSFS_SUS_MAP=y'
+              else
+                echo '# CONFIG_KSU_SUSFS is not set'
+              fi
+            } >> "$DEF"
+          fi
+          echo 'CONFIG_LOCALVERSION="-perf+"' >> "$DEF"
+          echo '# CONFIG_MODULE_SIG_FORCE is not set' >> "$DEF"
+          tail -20 "$DEF"
+
+      - name: Build kernel
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          export PATH="${GCC_BIN}:$PATH"
+          CROSS_COMPILE=aarch64-linux-android-
+          CLANG_TRIPLE=aarch64-linux-gnu-
+          make O=out ARCH=arm64 CC="${CLANG}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" \
+            "$(basename "${DEFCONFIG_PATH}")" 2>&1 | tee /tmp/defconfig.log
+          grep -E '^CONFIG_(KSU|KSU_SUSFS|LOCALVERSION|MODULE_SIG)' out/.config | tee /tmp/config-check.txt
+          make O=out ARCH=arm64 CC="${CLANG}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" \
+            -j"$(nproc)" Image.gz 2>&1 | tee /tmp/build.log
+          make O=out ARCH=arm64 CC="${CLANG}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" \
+            -j"$(nproc)" modules 2>&1 | tee /tmp/modules.log
+          rm -rf modout
+          make O=out ARCH=arm64 CC="${CLANG}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" \
+            INSTALL_MOD_PATH="$PWD/modout" modules_install 2>&1 | tee -a /tmp/modules.log
+          # 恢复 techpack Makefile（不影响产物）
+          for d in techpack/wlan techpack/audio; do
+            [ -f "$d/Makefile.stubbed" ] && mv "$d/Makefile.stubbed" "$d/Makefile"
+          done
+          if [ "${EXT_MODULES}" = "true" ]; then
+            : > /tmp/ext-ko.txt
+            for d in ${EXT_MODULE_DIRS}; do
+              [ -d "$d" ] || continue
+              extra=""
+              case "$d" in *qcacld*) extra="MODNAME=wlan CONFIG_QCA_CLD_WLAN=m WLAN_ROOT=$PWD/$d" ;; esac
+              make O=out ARCH=arm64 CC="${CLANG}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" \
+                M="$d" $extra -j"$(nproc)" modules 2>&1 | tail -40 || true
+              find "$d" "out/$d" -name '*.ko' -print >> /tmp/ext-ko.txt 2>/dev/null || true
+            done
+            sort -u /tmp/ext-ko.txt -o /tmp/ext-ko.txt || true
+            cat /tmp/ext-ko.txt || true
+          fi
+
+      - name: Collect outputs
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/dist/Image.gz"
+          cp out/.config "$GITHUB_WORKSPACE/dist/config.txt"
+          KREL=$(cat out/include/config/kernel.release)
+          echo "KERNEL_RELEASE=${KREL}" >> "$GITHUB_ENV"
+          tar -czf "$GITHUB_WORKSPACE/dist/modules.tar.gz" -C "modout/lib/modules/${KREL}" --exclude=build --exclude=source .
+          if [ -s /tmp/ext-ko.txt ]; then
+            mkdir -p "$GITHUB_WORKSPACE/dist/extmods"
+            while read -r ko; do
+              [ -f "$ko" ] && cp "$ko" "$GITHUB_WORKSPACE/dist/extmods/"
+            done < /tmp/ext-ko.txt
+            tar -czf "$GITHUB_WORKSPACE/dist/ext_modules.tar.gz" -C "$GITHUB_WORKSPACE/dist/extmods" .
+          fi
+          cd "$GITHUB_WORKSPACE/dist"
+          sha256sum Image.gz config.txt modules.tar.gz > SHA256SUMS.txt
+          ls -la
+
+      - name: Package AnyKernel3
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3work
+          rm -rf ak3work/.git
+          cp "$GITHUB_WORKSPACE/ak3/anykernel.sh" ak3work/anykernel.sh
+          cp "$GITHUB_WORKSPACE/dist/Image.gz" ak3work/Image.gz
+          ZIP="TB128FU-kernel-${GITHUB_RUN_NUMBER}-AnyKernel3.zip"
+          ( cd ak3work && zip -r9 "../dist/${ZIP}" . -x '*.git*' >/dev/null )
+          cd dist && sha256sum "${ZIP}" >> SHA256SUMS.txt && ls -la
+
+      - name: Publish release
+        run: |
+          set -euxo pipefail
+          TAG="build-${GITHUB_RUN_NUMBER}"
+          {
+            echo "Kernel: ${KERNEL_RELEASE}"
+            echo "defconfig: ${DEFCONFIG_PATH}"
+            echo "toolchain: clang-${TOOLCHAIN_REF}"
+            echo "SuSFS: ${ENABLE_SUSFS} (${SUSFS_VERSION})"
+            echo "hide_stuff: ${ENABLE_HIDE_STUFF}"
+            echo ""
+            echo '```'
+            cat /tmp/config-check.txt 2>/dev/null || true
+            echo '```'
+          } > /tmp/notes.md
+          gh release create "$TAG" dist/*.zip dist/Image.gz dist/config.txt dist/*.tar.gz dist/SHA256SUMS.txt \
+            --title "TB128FU kernel build #${GITHUB_RUN_NUMBER}" \
+            --notes-file /tmp/notes.md --repo "$GITHUB_REPOSITORY"
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Failure diagnostics
+        if: failure()
+        run: |
+          {
+            echo "### 构建失败"
+            echo '```'
+            tail -60 /tmp/build.log 2>/dev/null || tail -40 /tmp/defconfig.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
