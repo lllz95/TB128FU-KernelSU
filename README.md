@@ -116,7 +116,7 @@ boot_img_url = <boot.img 直链>
 | `defconfig` | 空 | 源码树中的 defconfig 名称 | 只填文件名，不要带路径 |
 | `boot_img_url` | 空 | boot 镜像直链 | `defconfig` 为空时使用 |
 
-`defconfig` 优先；两者都为空会直接报错。
+`boot_img_url` 优先：填写了 boot.img 时，会从 boot 镜像提取配置；没有填写时才使用 `defconfig`。两者都为空会直接报错。
 
 ### techpack
 

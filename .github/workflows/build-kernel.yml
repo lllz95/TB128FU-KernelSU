@@ -368,11 +368,8 @@ jobs:
         run: |
           set -euxo pipefail
           cd "${KERNEL_ROOT}"
-          if [ -n "${DEFCONFIG_NAME:-}" ]; then
-            DEF="arch/arm64/configs/${DEFCONFIG_NAME}"
-            [ -f "$DEF" ] || { echo "::error::defconfig not found: $DEF"; exit 1; }
-            echo "using source-tree defconfig ${DEFCONFIG_NAME}"
-          elif [ -n "${BOOT_IMG_URL:-}" ]; then
+          if [ -n "${BOOT_IMG_URL:-}" ]; then
+            echo "boot_img_url provided, extracting kernel config from boot image"
             echo "downloading boot image: ${BOOT_IMG_URL}"
             rm -f /tmp/boot.img
             OK=0
@@ -388,6 +385,10 @@ jobs:
             cp /tmp/stock.config arch/arm64/configs/stock_defconfig
             DEF="arch/arm64/configs/stock_defconfig"
             echo "extracted config from boot image ($(wc -l < /tmp/stock.config) lines)"
+          elif [ -n "${DEFCONFIG_NAME:-}" ]; then
+            DEF="arch/arm64/configs/${DEFCONFIG_NAME}"
+            [ -f "$DEF" ] || { echo "::error::defconfig not found: $DEF"; exit 1; }
+            echo "using source-tree defconfig ${DEFCONFIG_NAME}"
           else
             echo "::error::请填写 defconfig 或 boot_img_url"
             exit 1
