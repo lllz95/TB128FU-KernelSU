@@ -35,24 +35,9 @@ ak3/
 
 本仓库需要的“直链”，可以先上传至 Releases，也可以上传至其他可分享直链的网盘，之后复制分享链接粘贴到对应输入框。
 
-### 1. 内核源码（二选一）
+### 1. 内核源码
 
-**方式 A：源码仓库**
-
-```
-kernel_repo   = https://github.com/lllz95/TB128FU-Kernel
-kernel_branch = main
-```
-
-**方式 B：源码包直链**
-
-```
-kernel_pkg = <tar.gz 直链>
-```
-
-两种方式都可以填**内核源码仓库/包**，也可以填**设备源码仓库/包**（厂商整包）。
-
-内核在源码里的位置不需要手动指定——工作流会自动识别（见 `kernel_subdir`）。
+自备内核源码（或设备完整源码，工作流会自动定位内核源码，见 `kernel_subdir`），GitHub 公开仓库或压缩包皆可（压缩包需要上传直链）。
 
 ### 2. 内核配置
 
@@ -70,11 +55,13 @@ adb shell "zcat /proc/config.gz" > stock_config.txt
 adb shell su -c "zcat /proc/config.gz" > stock_config.txt
 ```
 
-然后把 `stock_config.txt`（或 `config.gz`）上传到 Releases / 网盘，把直链填到：
+然后把 stock_config.txt(或 config.gz) 上传至可用处，将直链填至：
 
 ```
 config_url = <配置直链>
 ```
+
+上传时请使用 `stock_config.txt`（或 `config.gz`）作为文件名；工作流只读取 `config_url` 指向的内容，不依赖文件名。
 
 工作流支持 `.config` 文本和 `config.gz` 压缩包，会自动识别。
 
@@ -170,38 +157,11 @@ defconfig = P89990JA1-perf_defconfig
 | 文件 | 说明 |
 |---|---|
 | `Image.gz` | 内核镜像 |
-| `config.txt` | 本次使用的内核 `.config` |
 | `build-params.txt` | 本次构建填写的参数记录 |
 | `modules.tar.gz` | 内核内置模块 |
 | `ext_modules.tar.gz` | 外部模块（`ext_modules=true` 时） |
 | `AnyKernel3.zip` | AK3 内核包，使用 REC 或相关工具刷入 |
 | `SHA256SUMS.txt` | 校验值 |
-
----
-
-## 刷机
-
-### 方式 A：AnyKernel3
-
-在支持 AnyKernel3 的 Recovery 或相关工具中刷入 `AnyKernel3.zip`。
-
-### 方式 B：boot 镜像
-
-本仓库不再生成修补后的 boot 镜像。需要自行用产物修补：
-
-- 以当前系统的 boot.img 为底
-- 用 `Image.gz` 替换 kernel 段
-- 保留原 ramdisk 与 DTB
-
-刷入：
-
-```bash
-fastboot flash boot_a boot.img
-fastboot flash boot_b boot.img
-fastboot reboot
-```
-
-> 自行修补时必须保留原厂 ramdisk 与 DTB，否则无法开机。
 
 ---
 

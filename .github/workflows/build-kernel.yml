@@ -370,7 +370,7 @@ jobs:
           cd "${KERNEL_ROOT}"
           if [ -n "${CONFIG_URL:-}" ]; then
             echo "downloading config: ${CONFIG_URL}"
-            rm -f /tmp/stock.config /tmp/config.raw
+            rm -f /tmp/stock_config.txt /tmp/config.raw
             OK=0
             for i in $(seq 1 15); do
               if curl -fL -C - --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/config.raw "${CONFIG_URL}"; then
@@ -381,13 +381,13 @@ jobs:
             done
             [ "$OK" = "1" ] || { echo "::error::failed to download config"; exit 1; }
             if [ "$(head -c 2 /tmp/config.raw | od -An -tx1 | tr -d ' \n')" = "1f8b" ]; then
-              gunzip -c /tmp/config.raw > /tmp/stock.config
+              gunzip -c /tmp/config.raw > /tmp/stock_config.txt
             else
-              cp /tmp/config.raw /tmp/stock.config
+              cp /tmp/config.raw /tmp/stock_config.txt
             fi
-            grep -q '^CONFIG_' /tmp/stock.config || { echo "::error::downloaded config is not a valid .config"; exit 1; }
-            echo "using uploaded config ($(wc -l < /tmp/stock.config) lines)"
-            cp /tmp/stock.config arch/arm64/configs/stock_defconfig
+            grep -q '^CONFIG_' /tmp/stock_config.txt || { echo "::error::downloaded config is not a valid .config"; exit 1; }
+            echo "using uploaded config ($(wc -l < /tmp/stock_config.txt) lines)"
+            cp /tmp/stock_config.txt arch/arm64/configs/stock_defconfig
             DEF="arch/arm64/configs/stock_defconfig"
           elif [ -n "${DEFCONFIG_NAME:-}" ]; then
             DEF="arch/arm64/configs/${DEFCONFIG_NAME}"
@@ -468,7 +468,6 @@ jobs:
           cd "${KERNEL_ROOT}"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/dist/Image.gz"
-          cp out/.config "$GITHUB_WORKSPACE/dist/config.txt"
           KREL=$(cat out/include/config/kernel.release)
           echo "KERNEL_RELEASE=${KREL}" >> "$GITHUB_ENV"
           tar -czf "$GITHUB_WORKSPACE/dist/modules.tar.gz" -C "modout/lib/modules/${KREL}" --exclude=build --exclude=source .
@@ -507,7 +506,7 @@ jobs:
             echo "ext_modules=${EXT_MODULES}"
             echo "ext_module_dirs=${EXT_MODULE_DIRS}"
           } > "build-params.txt"
-          sha256sum Image.gz config.txt modules.tar.gz > SHA256SUMS.txt
+          sha256sum Image.gz modules.tar.gz > SHA256SUMS.txt
           ls -la
 
       - name: Package AnyKernel3
@@ -536,7 +535,7 @@ jobs:
             cat /tmp/config-check.txt 2>/dev/null || true
             echo '```'
           } > /tmp/notes.md
-          FILES="dist/*.zip dist/Image.gz dist/config.txt dist/*.tar.gz dist/SHA256SUMS.txt dist/build-params.txt"
+          FILES="dist/*.zip dist/Image.gz dist/*.tar.gz dist/SHA256SUMS.txt dist/build-params.txt"
           gh release create "$TAG" $FILES \
             --title "TB128FU kernel build #${GITHUB_RUN_NUMBER}" \
             --notes-file /tmp/notes.md --repo "$GITHUB_REPOSITORY"
