@@ -500,7 +500,7 @@ jobs:
             echo "force_modules=${FORCE_MODULES}"
             echo "ext_modules=${EXT_MODULES}"
             echo "ext_module_dirs=${EXT_MODULE_DIRS}"
-          } > "本次参数记录.txt"
+          } > "build-params.txt"
           if [ -n "${BOOT_IMG_URL:-}" ]; then
             if [ ! -f /tmp/boot.img ]; then
               OK=0
@@ -545,7 +545,7 @@ jobs:
             cat /tmp/config-check.txt 2>/dev/null || true
             echo '```'
           } > /tmp/notes.md
-          FILES="dist/*.zip dist/Image.gz dist/config.txt dist/*.tar.gz dist/SHA256SUMS.txt dist/本次参数记录.txt"
+          FILES="dist/*.zip dist/Image.gz dist/config.txt dist/*.tar.gz dist/SHA256SUMS.txt dist/build-params.txt"
           [ -f dist/boot-patched.img ] && FILES="$FILES dist/boot-patched.img"
           gh release create "$TAG" $FILES \
             --title "TB128FU kernel build #${GITHUB_RUN_NUMBER}" \
