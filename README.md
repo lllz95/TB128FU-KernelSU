@@ -5,7 +5,7 @@
 - 内核基线：Linux 4.19.157
 - Root：ReSukiSU（现已改名 **BakaSU**）
 - 隐藏：可选 SuSFS v2.3.0 + `path_umount` 回移 + `hide_stuff`
-- 工具链：在线下载 AOSP clang + aarch64 gcc 4.9
+- 工具链：优先使用源码仓库自带的 prebuilts，否则在线下载 AOSP clang + gcc
 
 ---
 
@@ -24,8 +24,6 @@ susfs/
   lenovo_4_19_adapt.py               # fdinfo.c / namespace.c 的 4.19 适配
 scripts/
   detect_kernel_root.py              # 自动识别内核所在目录
-  extract_ikconfig.py                # 从 boot.img 提取内嵌 .config
-  repack_boot.py                     # 用新内核重打包 boot.img（header v0-v4）
   path_umount_backport.sh            # 回移 path_umount()（4.19 没有）
 ak3/
   anykernel.sh                       # AnyKernel3 模板
@@ -37,7 +35,7 @@ ak3/
 
 本仓库需要的“直链”，可以先上传至 Releases，也可以上传至其他可分享直链的网盘，之后复制分享链接粘贴到对应输入框。
 
-### 内核源码（二选一）
+### 1. 内核源码（二选一）
 
 **方式 A：源码仓库**
 
@@ -56,25 +54,39 @@ kernel_pkg = <tar.gz 直链>
 
 内核在源码里的位置不需要手动指定——工作流会自动识别（见 `kernel_subdir`）。
 
-### 内核配置（二选一）
+### 2. 内核配置
 
-**方式 A：源码树里的 defconfig**
+**推荐：读取当前系统的配置并上传**
 
-到内核源码的 `arch/arm64/configs/` 目录找对应文件，例如：
+用 adb 读取当前系统正在使用的内核配置：
+
+```bash
+adb shell "zcat /proc/config.gz" > stock_config.txt
+```
+
+如果 shell 没有权限，用 root：
+
+```bash
+adb shell su -c "zcat /proc/config.gz" > stock_config.txt
+```
+
+然后把 `stock_config.txt`（或 `config.gz`）上传到 Releases / 网盘，把直链填到：
+
+```
+config_url = <配置直链>
+```
+
+工作流支持 `.config` 文本和 `config.gz` 压缩包，会自动识别。
+
+**不填 `config_url` 时**：使用内核源码里的 defconfig。
 
 ```
 defconfig = P89990JA1-perf_defconfig
 ```
 
-**方式 B：从 boot.img 提取**
+如果 `defconfig` 也留空，默认使用源码树的 `P89990JA1-perf_defconfig`。
 
-```
-boot_img_url = <boot.img 直链>
-```
-
-工作流会从 boot 镜像中提取内核内嵌的 `.config`，并用同一个 boot.img 生成修补后的 boot 镜像。
-
-> 该 boot 镜像应与要构建的内核属于同一系统：构建当前系统内核就用当前系统的 boot。
+**风险提示**：源码仓库的配置可能与当前系统不匹配，可能导致 vendor 模块无法加载（CRC/vermagic 不一致）、VINTF 提示或外设异常。建议读取当前系统配置后上传，再构建。
 
 ---
 
@@ -113,10 +125,10 @@ boot_img_url = <boot.img 直链>
 
 | 输入 | 默认 | 作用 | 建议 |
 |---|---|---|---|
+| `config_url` | 空 | 原系统配置直链（`.config` / `config.gz`） | 推荐填写，见上文 |
 | `defconfig` | 空 | 源码树中的 defconfig 名称 | 只填文件名，不要带路径 |
-| `boot_img_url` | 空 | boot 镜像直链 | `defconfig` 为空时使用 |
 
-`boot_img_url` 优先：填写了 boot.img 时，会从 boot 镜像提取配置；没有填写时才使用 `defconfig`。两者都为空会直接报错。
+优先级：`config_url` > `defconfig` > 默认 `P89990JA1-perf_defconfig`。
 
 ### techpack
 
@@ -159,11 +171,10 @@ boot_img_url = <boot.img 直链>
 |---|---|
 | `Image.gz` | 内核镜像 |
 | `config.txt` | 本次使用的内核 `.config` |
-| `本次参数记录.txt` | 本次构建填写的参数记录 |
+| `build-params.txt` | 本次构建填写的参数记录 |
 | `modules.tar.gz` | 内核内置模块 |
 | `ext_modules.tar.gz` | 外部模块（`ext_modules=true` 时） |
 | `AnyKernel3.zip` | AK3 内核包，使用 REC 或相关工具刷入 |
-| `boot-patched.img` | 修补后的 boot 镜像（填写了 `boot_img_url` 时自动生成） |
 | `SHA256SUMS.txt` | 校验值 |
 
 ---
@@ -176,13 +187,17 @@ boot_img_url = <boot.img 直链>
 
 ### 方式 B：boot 镜像
 
-构建前上传当前系统 boot.img，构建后可自动生成修补好的 boot.img；或自行使用相关产物修补。
+本仓库不再生成修补后的 boot 镜像。需要自行用产物修补：
+
+- 以当前系统的 boot.img 为底
+- 用 `Image.gz` 替换 kernel 段
+- 保留原 ramdisk 与 DTB
 
 刷入：
 
 ```bash
-fastboot flash boot_a boot-patched.img
-fastboot flash boot_b boot-patched.img
+fastboot flash boot_a boot.img
+fastboot flash boot_b boot.img
 fastboot reboot
 ```
 

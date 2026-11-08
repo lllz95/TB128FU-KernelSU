@@ -46,8 +46,8 @@ on:
         description: "内核源码 arch/arm64/configs 下的 defconfig 名称（只需文件名）"
         default: ""
         required: false
-      boot_img_url:
-        description: "当前系统 boot.img 直链；defconfig 为空时用它提取配置并生成修补后的 boot"
+      config_url:
+        description: "原系统配置直链（.config 或 config.gz）；留空则使用源码 defconfig"
         default: ""
         required: false
       # ---------- techpack ----------
@@ -133,7 +133,7 @@ jobs:
       GCC_REPO: ${{ github.event.inputs.gcc_repo }}
       GCC_REF: ${{ github.event.inputs.gcc_ref || 'main' }}
       DEFCONFIG_NAME: ${{ github.event.inputs.defconfig }}
-      BOOT_IMG_URL: ${{ github.event.inputs.boot_img_url }}
+      CONFIG_URL: ${{ github.event.inputs.config_url }}
       USE_TECHPACK: ${{ github.event.inputs.use_techpack || 'false' }}
       TECHPACK_REPO: ${{ github.event.inputs.techpack_repo }}
       TECHPACK_BRANCH: ${{ github.event.inputs.techpack_branch || 'main' }}
@@ -368,30 +368,35 @@ jobs:
         run: |
           set -euxo pipefail
           cd "${KERNEL_ROOT}"
-          if [ -n "${BOOT_IMG_URL:-}" ]; then
-            echo "boot_img_url provided, extracting kernel config from boot image"
-            echo "downloading boot image: ${BOOT_IMG_URL}"
-            rm -f /tmp/boot.img
+          if [ -n "${CONFIG_URL:-}" ]; then
+            echo "downloading config: ${CONFIG_URL}"
+            rm -f /tmp/stock.config /tmp/config.raw
             OK=0
             for i in $(seq 1 15); do
-              if curl -fL -C - --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/boot.img "${BOOT_IMG_URL}"; then
+              if curl -fL -C - --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/config.raw "${CONFIG_URL}"; then
                 OK=1; break
               fi
               echo "download attempt $i failed, retrying with resume..."
               sleep 5
             done
-            [ "$OK" = "1" ] || { echo "::error::failed to download boot image"; exit 1; }
-            python3 "$GITHUB_WORKSPACE/scripts/extract_ikconfig.py" /tmp/boot.img > /tmp/stock.config
+            [ "$OK" = "1" ] || { echo "::error::failed to download config"; exit 1; }
+            if [ "$(head -c 2 /tmp/config.raw | od -An -tx1 | tr -d ' \n')" = "1f8b" ]; then
+              gunzip -c /tmp/config.raw > /tmp/stock.config
+            else
+              cp /tmp/config.raw /tmp/stock.config
+            fi
+            grep -q '^CONFIG_' /tmp/stock.config || { echo "::error::downloaded config is not a valid .config"; exit 1; }
+            echo "using uploaded config ($(wc -l < /tmp/stock.config) lines)"
             cp /tmp/stock.config arch/arm64/configs/stock_defconfig
             DEF="arch/arm64/configs/stock_defconfig"
-            echo "extracted config from boot image ($(wc -l < /tmp/stock.config) lines)"
           elif [ -n "${DEFCONFIG_NAME:-}" ]; then
             DEF="arch/arm64/configs/${DEFCONFIG_NAME}"
             [ -f "$DEF" ] || { echo "::error::defconfig not found: $DEF"; exit 1; }
             echo "using source-tree defconfig ${DEFCONFIG_NAME}"
           else
-            echo "::error::请填写 defconfig 或 boot_img_url"
-            exit 1
+            DEF="arch/arm64/configs/P89990JA1-perf_defconfig"
+            [ -f "$DEF" ] || { echo "::error::no config_url and default defconfig not found"; exit 1; }
+            echo "::warning::config_url empty, falling back to source defconfig P89990JA1-perf_defconfig"
           fi
           echo "DEFCONFIG_PATH=${DEF}" >> "$GITHUB_ENV"
 
@@ -486,7 +491,7 @@ jobs:
             echo "gcc_repo=${GCC_REPO}"
             echo "gcc_ref=${GCC_REF}"
             echo "defconfig=${DEFCONFIG_NAME}"
-            echo "boot_img_url=${BOOT_IMG_URL}"
+            echo "config_url=${CONFIG_URL}"
             echo "use_techpack=${USE_TECHPACK}"
             echo "techpack_repo=${TECHPACK_REPO}"
             echo "techpack_branch=${TECHPACK_BRANCH}"
@@ -502,22 +507,7 @@ jobs:
             echo "ext_modules=${EXT_MODULES}"
             echo "ext_module_dirs=${EXT_MODULE_DIRS}"
           } > "build-params.txt"
-          if [ -n "${BOOT_IMG_URL:-}" ]; then
-            if [ ! -f /tmp/boot.img ]; then
-              OK=0
-              for i in $(seq 1 15); do
-                if curl -fL -C - --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/boot.img "${BOOT_IMG_URL}"; then
-                  OK=1; break
-                fi
-                echo "download attempt $i failed, retrying with resume..."
-                sleep 5
-              done
-              [ "$OK" = "1" ] || { echo "::error::failed to download boot image"; exit 1; }
-            fi
-            python3 "$GITHUB_WORKSPACE/scripts/repack_boot.py" /tmp/boot.img Image.gz boot-patched.img
-          fi
           sha256sum Image.gz config.txt modules.tar.gz > SHA256SUMS.txt
-          [ -f boot-patched.img ] && sha256sum boot-patched.img >> SHA256SUMS.txt
           ls -la
 
       - name: Package AnyKernel3
@@ -547,7 +537,6 @@ jobs:
             echo '```'
           } > /tmp/notes.md
           FILES="dist/*.zip dist/Image.gz dist/config.txt dist/*.tar.gz dist/SHA256SUMS.txt dist/build-params.txt"
-          [ -f dist/boot-patched.img ] && FILES="$FILES dist/boot-patched.img"
           gh release create "$TAG" $FILES \
             --title "TB128FU kernel build #${GITHUB_RUN_NUMBER}" \
             --notes-file /tmp/notes.md --repo "$GITHUB_REPOSITORY"
