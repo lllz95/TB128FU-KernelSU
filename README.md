@@ -107,6 +107,8 @@ boot_img_url = <boot.img 直链>
 | `gcc_repo` | AOSP gcc 4.9 | aarch64 gcc 仓库 | |
 | `gcc_ref` | `main` | gcc 仓库分支 / tag | |
 
+如果源码仓库自带 `prebuilts/`（例如设备源码包），会优先使用仓库内的 clang 与 gcc；仓库里没有对应版本时才在线下载。
+
 ### 内核配置
 
 | 输入 | 默认 | 作用 | 建议 |

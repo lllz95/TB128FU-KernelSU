@@ -174,9 +174,16 @@ jobs:
               SPARSE=$(git ls-tree -d --name-only HEAD | grep -E '^kernel(-|_)?[0-9]|^kernel$' | head -1 || true)
             fi
             if [ -n "$SPARSE" ]; then
-              echo "sparse checkout: $SPARSE"
+              EXTRA=""
+              if git cat-file -e "HEAD:prebuilts/clang/host/linux-x86/clang-${TOOLCHAIN_REF}" 2>/dev/null; then
+                EXTRA="$EXTRA prebuilts/clang/host/linux-x86/clang-${TOOLCHAIN_REF}"
+              fi
+              if git cat-file -e "HEAD:prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9" 2>/dev/null; then
+                EXTRA="$EXTRA prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
+              fi
+              echo "sparse checkout: $SPARSE $EXTRA"
               git sparse-checkout init --cone
-              git sparse-checkout set "$SPARSE"
+              git sparse-checkout set $SPARSE $EXTRA
             fi
             git checkout
             cd ..
@@ -195,49 +202,62 @@ jobs:
           head -5 Makefile
           grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL)' Makefile
 
-      - name: Fetch toolchain (online)
+      - name: Fetch toolchain
         run: |
           set -euxo pipefail
-          rm -rf /tmp/clangrepo /tmp/gccrepo
-          FOUND=0
-          for BR in "${TOOLCHAIN_BRANCH}" android-12.0.0_r1 android-11.0.0_r1 master main; do
-            echo "== trying clang branch: $BR =="
+          SRC_CLANG="$GITHUB_WORKSPACE/src/prebuilts/clang/host/linux-x86/clang-${TOOLCHAIN_REF}/bin/clang"
+          SRC_GCC="$GITHUB_WORKSPACE/src/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin"
+          CLANG=""
+          if [ -x "$SRC_CLANG" ]; then
+            CLANG="$SRC_CLANG"
+            echo "using clang from source repository: $CLANG"
+          else
             rm -rf /tmp/clangrepo
-            if ! git clone --filter=blob:none --no-checkout --depth 1 -b "$BR" \
-                 "${TOOLCHAIN_REPO}" /tmp/clangrepo 2>/tmp/clone-clang.err; then
-              echo "branch $BR not available"
-              continue
+            FOUND=0
+            for BR in "${TOOLCHAIN_BRANCH}" android-12.0.0_r1 android-11.0.0_r1 master main; do
+              echo "== trying clang branch: $BR =="
+              rm -rf /tmp/clangrepo
+              if ! git clone --filter=blob:none --no-checkout --depth 1 -b "$BR" \
+                   "${TOOLCHAIN_REPO}" /tmp/clangrepo 2>/tmp/clone-clang.err; then
+                echo "branch $BR not available"
+                continue
+              fi
+              cd /tmp/clangrepo
+              if git ls-tree -d --name-only HEAD | grep -qx "clang-${TOOLCHAIN_REF}"; then
+                git sparse-checkout init --cone
+                git sparse-checkout set "clang-${TOOLCHAIN_REF}"
+                git checkout
+                FOUND=1
+                echo "clang-${TOOLCHAIN_REF} found on branch ${BR}"
+                break
+              fi
+              echo "clang-${TOOLCHAIN_REF} not in branch ${BR}"
+              cd ..
+            done
+            if [ "$FOUND" != "1" ]; then
+              echo "::error::clang-${TOOLCHAIN_REF} not found (source repo has no prebuilts and online mirror lacks this version)"
+              exit 1
             fi
-            cd /tmp/clangrepo
-            if git ls-tree -d --name-only HEAD | grep -qx "clang-${TOOLCHAIN_REF}"; then
-              git sparse-checkout init --cone
-              git sparse-checkout set "clang-${TOOLCHAIN_REF}"
-              git checkout
-              FOUND=1
-              echo "clang-${TOOLCHAIN_REF} found on branch ${BR}"
-              break
-            fi
-            echo "clang-${TOOLCHAIN_REF} not in branch ${BR}"
-            cd ..
-          done
-          if [ "$FOUND" != "1" ]; then
-            echo "::error::clang-${TOOLCHAIN_REF} not found in any known branch"
-            echo "available clang dirs on last branch:"
-            git -C /tmp/clangrepo ls-tree -d --name-only HEAD | grep '^clang-' || true
-            exit 1
+            CLANG="/tmp/clangrepo/clang-${TOOLCHAIN_REF}/bin/clang"
           fi
-          CLANG="/tmp/clangrepo/clang-${TOOLCHAIN_REF}/bin/clang"
-          [ -x "$CLANG" ] || { echo "::error::clang not found at $CLANG"; exit 1; }
+          [ -x "$CLANG" ] || { echo "::error::clang not found"; exit 1; }
           "$CLANG" --version
           echo "CLANG=${CLANG}" >> "$GITHUB_ENV"
 
-          if git clone --depth 1 -b "${GCC_REF}" "${GCC_REPO}" /tmp/gccrepo 2>/tmp/clone-gcc.err; then
-            echo "cloned gcc branch ${GCC_REF}"
+          if [ -x "$SRC_GCC/aarch64-linux-android-gcc" ]; then
+            GCC_BIN="$SRC_GCC"
+            echo "using gcc from source repository: $GCC_BIN"
           else
-            git clone --depth 1 "${GCC_REPO}" /tmp/gccrepo
+            rm -rf /tmp/gccrepo
+            if git clone --depth 1 -b "${GCC_REF}" "${GCC_REPO}" /tmp/gccrepo 2>/tmp/clone-gcc.err; then
+              echo "cloned gcc branch ${GCC_REF}"
+            else
+              git clone --depth 1 "${GCC_REPO}" /tmp/gccrepo
+            fi
+            GCC_BIN=/tmp/gccrepo/bin
           fi
-          ls /tmp/gccrepo/bin/aarch64-linux-android-gcc
-          echo "GCC_BIN=/tmp/gccrepo/bin" >> "$GITHUB_ENV"
+          ls "$GCC_BIN/aarch64-linux-android-gcc"
+          echo "GCC_BIN=${GCC_BIN}" >> "$GITHUB_ENV"
 
       - name: Fetch techpack from additional repository
         if: env.USE_TECHPACK == 'true'
