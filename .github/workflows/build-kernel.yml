@@ -68,10 +68,7 @@ on:
         default: "true"
         required: false
       # ---------- KSU / SuSFS ----------
-      ksu_variant:
-        description: "resukisu = ReSukiSU（现已改名 BakaSU）"
-        default: "resukisu"
-        required: false
+
       ksu_ref:
         description: "ReSukiSU 版本"
         default: "v4.2.0-rc3"
@@ -88,10 +85,7 @@ on:
         description: "自定义 SuSFS 内核补丁直链（susfs_version=custom 时）"
         default: ""
         required: false
-      susfs_hook_url:
-        description: "自定义 SuSFS inline hook 脚本直链（可选）"
-        default: ""
-        required: false
+
       enable_path_umount:
         description: "回移 path_umount（4.19 必需）"
         default: "true"
@@ -145,12 +139,12 @@ jobs:
       TECHPACK_REPO: ${{ github.event.inputs.techpack_repo }}
       TECHPACK_BRANCH: ${{ github.event.inputs.techpack_branch || 'main' }}
       STUB_TECHPACK: ${{ github.event.inputs.stub_techpack || 'true' }}
-      KSU_VARIANT: ${{ github.event.inputs.ksu_variant || 'resukisu' }}
+      KSU_VARIANT: resukisu
       KSU_REF: ${{ github.event.inputs.ksu_ref || 'v4.2.0-rc3' }}
       ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs || 'false' }}
       SUSFS_VERSION: ${{ github.event.inputs.susfs_version || 'latest' }}
       SUSFS_PATCH_URL: ${{ github.event.inputs.susfs_patch_url }}
-      SUSFS_HOOK_URL: ${{ github.event.inputs.susfs_hook_url }}
+
       ENABLE_PATH_UMOUNT: ${{ github.event.inputs.enable_path_umount || 'true' }}
       ENABLE_HIDE_STUFF: ${{ github.event.inputs.enable_hide_stuff || 'true' }}
       DEBUG_SYSLOG: ${{ github.event.inputs.debug_syslog || 'false' }}
@@ -301,12 +295,7 @@ jobs:
           fi
           find . -name '*.rej' -print | tee /tmp/rej-susfs.txt
           echo "susfs rejects: $(wc -l < /tmp/rej-susfs.txt)"
-          if [ -n "${SUSFS_HOOK_URL:-}" ]; then
-            curl -fL --retry 3 -o /tmp/susfs-hooks.sh "${SUSFS_HOOK_URL}"
-            bash /tmp/susfs-hooks.sh 2>&1 | tee /tmp/susfs-hooks.log
-          else
-            bash "$GITHUB_WORKSPACE/patches/susfs_inline_hook_patches.sh" 2>&1 | tee /tmp/susfs-hooks.log
-          fi
+          bash "$GITHUB_WORKSPACE/patches/susfs_inline_hook_patches.sh" 2>&1 | tee /tmp/susfs-hooks.log
 
       - name: Hide KernelSU traces (hide_stuff)
         if: env.ENABLE_HIDE_STUFF == 'true'

@@ -142,12 +142,12 @@ boot_img_url = <boot.img 直链>
 
 | 输入 | 默认 | 作用 | 建议 |
 |---|---|---|---|
-| `ksu_variant` | `resukisu` | `resukisu` = ReSukiSU（现名 BakaSU） | 保持默认 |
+| （固定） | `resukisu` | 集成 ReSukiSU（现名 BakaSU） | 无需修改 |
 | `ksu_ref` | `v4.2.0-rc3` | ReSukiSU 版本 | 固定版本便于复现 |
 | `enable_susfs` | `false` | 是否添加 SuSFS | 需要隐藏时开启 |
 | `susfs_version` | `latest` | `latest` = 内置 v2.3.0；`custom` 用自定义补丁 | 优先用 `latest` |
 | `susfs_patch_url` | 空 | 自定义 SuSFS 补丁直链 | 仅 `custom` 时使用 |
-| `susfs_hook_url` | 空 | 自定义 inline hook 脚本直链 | 仅 `custom` 时可选 |
+
 | `enable_path_umount` | `true` | 回移 `path_umount()` | **4.19 必须保持开启** |
 | `enable_hide_stuff` | `true` | 打 hide_stuff 清理痕迹 | 在所有补丁之后执行 |
 | `debug_syslog` | `false` | 允许 `adb shell dmesg` | 仅调试时开启 |
