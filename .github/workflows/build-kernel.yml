@@ -373,7 +373,15 @@ jobs:
             echo "using source-tree defconfig ${DEFCONFIG_NAME}"
           elif [ -n "${BOOT_IMG_URL:-}" ]; then
             echo "downloading boot image: ${BOOT_IMG_URL}"
-            curl -fL --retry 3 -o /tmp/boot.img "${BOOT_IMG_URL}"
+            if echo "${BOOT_IMG_URL}" | grep -qE '^https://github.com/[^/]+/[^/]+/releases/download/'; then
+              ORG=$(echo "$BOOT_IMG_URL" | cut -d/ -f4)
+              REPO=$(echo "$BOOT_IMG_URL" | cut -d/ -f5)
+              TAG=$(echo "$BOOT_IMG_URL" | cut -d/ -f7)
+              ASSET=$(echo "$BOOT_IMG_URL" | cut -d/ -f8)
+              gh release download "$TAG" -p "$ASSET" -O /tmp/boot.img -R "$ORG/$REPO" --clobber
+            else
+              curl -fL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/boot.img "${BOOT_IMG_URL}"
+            fi
             python3 "$GITHUB_WORKSPACE/scripts/extract_ikconfig.py" /tmp/boot.img > /tmp/stock.config
             cp /tmp/stock.config arch/arm64/configs/stock_defconfig
             DEF="arch/arm64/configs/stock_defconfig"
@@ -492,7 +500,17 @@ jobs:
             echo "ext_module_dirs=${EXT_MODULE_DIRS}"
           } > "本次参数记录.txt"
           if [ -n "${BOOT_IMG_URL:-}" ]; then
-            [ -f /tmp/boot.img ] || curl -fL --retry 3 -o /tmp/boot.img "${BOOT_IMG_URL}"
+            if [ ! -f /tmp/boot.img ]; then
+              if echo "${BOOT_IMG_URL}" | grep -qE '^https://github.com/[^/]+/[^/]+/releases/download/'; then
+                ORG=$(echo "$BOOT_IMG_URL" | cut -d/ -f4)
+                REPO=$(echo "$BOOT_IMG_URL" | cut -d/ -f5)
+                TAG=$(echo "$BOOT_IMG_URL" | cut -d/ -f7)
+                ASSET=$(echo "$BOOT_IMG_URL" | cut -d/ -f8)
+                gh release download "$TAG" -p "$ASSET" -O /tmp/boot.img -R "$ORG/$REPO" --clobber
+              else
+                curl -fL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/boot.img "${BOOT_IMG_URL}"
+              fi
+            fi
             python3 "$GITHUB_WORKSPACE/scripts/repack_boot.py" /tmp/boot.img Image.gz boot-patched.img
           fi
           sha256sum Image.gz config.txt modules.tar.gz > SHA256SUMS.txt
