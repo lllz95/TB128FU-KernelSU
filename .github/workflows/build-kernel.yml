@@ -41,6 +41,10 @@ on:
         description: "gcc 仓库分支 / tag"
         default: "main"
         required: false
+      toolchain_url:
+        description: "自定义 clang 工具链 tar.gz 直链（可选，优先于仓库下载）"
+        default: ""
+        required: false
       # ---------- 内核配置 ----------
       defconfig:
         description: "内核源码 arch/arm64/configs 下的 defconfig 名称（只需文件名）"
@@ -119,6 +123,7 @@ jobs:
       TOOLCHAIN_REF: ${{ github.event.inputs.toolchain_ref || 'r450784e' }}
       GCC_REPO: ${{ github.event.inputs.gcc_repo }}
       GCC_REF: ${{ github.event.inputs.gcc_ref || 'main' }}
+      TOOLCHAIN_URL: ${{ github.event.inputs.toolchain_url }}
       DEFCONFIG_NAME: ${{ github.event.inputs.defconfig }}
       CONFIG_URL: ${{ github.event.inputs.config_url }}
       STUB_TECHPACK: ${{ github.event.inputs.stub_techpack || 'true' }}
@@ -202,7 +207,24 @@ jobs:
           SRC_CLANG="$GITHUB_WORKSPACE/src/prebuilts/clang/host/linux-x86/clang-${TOOLCHAIN_REF}/bin/clang"
           SRC_GCC="$GITHUB_WORKSPACE/src/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin"
           CLANG=""
-          if [ -x "$SRC_CLANG" ]; then
+          if [ -n "${TOOLCHAIN_URL:-}" ]; then
+            echo "downloading custom toolchain: ${TOOLCHAIN_URL}"
+            rm -rf /tmp/customtc /tmp/tc.tar.gz
+            OK=0
+            for i in $(seq 1 20); do
+              if curl -fL -C - --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/tc.tar.gz "${TOOLCHAIN_URL}"; then
+                OK=1; break
+              fi
+              echo "toolchain download attempt $i failed, retrying..."
+              sleep 5
+            done
+            [ "$OK" = "1" ] || { echo "::error::failed to download toolchain"; exit 1; }
+            mkdir -p /tmp/customtc
+            tar -xf /tmp/tc.tar.gz -C /tmp/customtc
+            CLANG=$(find /tmp/customtc -maxdepth 4 \( -type f -o -type l \) -path "*/bin/clang" | head -1)
+            [ -n "$CLANG" ] && [ -x "$CLANG" ] || { echo "::error::bin/clang not found in toolchain archive"; exit 1; }
+            echo "using custom toolchain clang: $CLANG"
+          elif [ -x "$SRC_CLANG" ]; then
             CLANG="$SRC_CLANG"
             echo "using clang from source repository: $CLANG"
           else
