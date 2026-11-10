@@ -172,7 +172,15 @@ jobs:
             cd src
             SPARSE="${KERNEL_SUBDIR:-}"
             if [ -z "$SPARSE" ]; then
+            #判断是否为设备源码树
               SPARSE=$(git ls-tree -d --name-only HEAD | grep -E '^kernel(-|_)?[0-9]|^kernel$' | head -1 || true)
+              #判断是否为纯内核源码树
+              if [ -z "$SPARSE" ]; then
+                if git ls-tree --name-only HEAD | grep -q '^Makefile$'; then
+                  echo "Detected pure kernel source at root, auto-setting SPARSE to '.'"
+                  SPARSE="."
+                fi
+              fi
             fi
             if [ -n "$SPARSE" ]; then
               EXTRA=""
