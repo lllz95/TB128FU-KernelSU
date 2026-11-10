@@ -173,13 +173,13 @@ jobs:
             SPARSE="${KERNEL_SUBDIR:-}"
             
             if [ -z "$SPARSE" ]; then
-              #判断是否为内核源码树（通过搜索Makefile）
-              if git ls-tree --name-only HEAD | grep -q '^Makefile$'; then
-                SPARSE="."
-                echo "Detected pure kernel source at root, setting SPARSE to '.'"
+              # 纯内核源码树：根目录 Makefile 含 VERSION，且存在 arch/arm64
+              if git show HEAD:Makefile 2>/dev/null | grep -qE '^VERSION = [0-9]' \
+                 && git cat-file -e HEAD:arch/arm64 2>/dev/null; then
+                echo "Detected pure kernel source at root; full checkout (no sparse)"
               else
-                #未搜索到Makefile，判断为设备源码树，寻找kernel子目录
-                SPARSE=$(git ls-tree -d --name-only HEAD | grep -E '^kernel(-|_)?[0-9]*|^kernel$' | head -1 || true)
+                # 设备源码树：寻找 kernel / kernel-4.19.x 子目录
+                SPARSE=$(git ls-tree -d --name-only HEAD | grep -E '^kernel([-_][0-9].*)?$' | head -1 || true)
               fi
             fi
             
