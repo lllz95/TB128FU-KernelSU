@@ -505,6 +505,7 @@ jobs:
             echo "toolchain_repo=${TOOLCHAIN_REPO}"
             echo "toolchain_branch=${TOOLCHAIN_BRANCH}"
             echo "toolchain_ref=${TOOLCHAIN_REF}"
+            echo "toolchain_url=${TOOLCHAIN_URL}"
             echo "gcc_repo=${GCC_REPO}"
             echo "gcc_ref=${GCC_REF}"
             echo "defconfig=${DEFCONFIG_NAME}"
