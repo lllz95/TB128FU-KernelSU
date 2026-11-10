@@ -50,21 +50,8 @@ on:
         description: "原系统配置直链（.config 或 config.gz）；留空则使用源码 defconfig"
         default: ""
         required: false
-      # ---------- techpack ----------
-      use_techpack:
-        description: "内核源码主仓库 techpack 不全时，从附加仓库拉取"
-        default: "false"
-        required: false
-      techpack_repo:
-        description: "第三方内核源码仓库链接（techpack 来源）"
-        default: ""
-        required: false
-      techpack_branch:
-        description: "techpack 仓库分支"
-        default: "main"
-        required: false
       stub_techpack:
-        description: "编译内核时短路 techpack，避免驱动编进内核"
+        description: "编译内核时短路内核树自带的 techpack，避免厂商驱动编进内核"
         default: "true"
         required: false
       # ---------- Root / 隐藏 ----------
@@ -134,9 +121,6 @@ jobs:
       GCC_REF: ${{ github.event.inputs.gcc_ref || 'main' }}
       DEFCONFIG_NAME: ${{ github.event.inputs.defconfig }}
       CONFIG_URL: ${{ github.event.inputs.config_url }}
-      USE_TECHPACK: ${{ github.event.inputs.use_techpack || 'false' }}
-      TECHPACK_REPO: ${{ github.event.inputs.techpack_repo }}
-      TECHPACK_BRANCH: ${{ github.event.inputs.techpack_branch || 'main' }}
       STUB_TECHPACK: ${{ github.event.inputs.stub_techpack || 'true' }}
       KSU_REF: ${{ github.event.inputs.ksu_ref || 'v4.2.0-rc3' }}
       ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs || 'false' }}
@@ -268,22 +252,6 @@ jobs:
           fi
           ls "$GCC_BIN/aarch64-linux-android-ld"
           echo "GCC_BIN=${GCC_BIN}" >> "$GITHUB_ENV"
-
-      - name: Fetch techpack from additional repository
-        if: env.USE_TECHPACK == 'true'
-        run: |
-          set -euxo pipefail
-          [ -n "${TECHPACK_REPO:-}" ] || { echo "::error::use_techpack=true 但 techpack_repo 为空"; exit 1; }
-          rm -rf /tmp/techpack-src
-          git clone --depth 1 -b "${TECHPACK_BRANCH}" "${TECHPACK_REPO}" /tmp/techpack-src
-          if [ -d /tmp/techpack-src/techpack ]; then
-            cp -a /tmp/techpack-src/techpack "${KERNEL_ROOT}/"
-          else
-            TP=$(find /tmp/techpack-src -maxdepth 3 -type d -name techpack | head -1)
-            [ -n "$TP" ] || { echo "::error::附加仓库中没有 techpack 目录"; exit 1; }
-            cp -a "$TP" "${KERNEL_ROOT}/"
-          fi
-          ls "${KERNEL_ROOT}/techpack"
 
       - name: Stub techpack (avoid building vendor drivers into kernel)
         if: env.STUB_TECHPACK == 'true'
@@ -500,9 +468,6 @@ jobs:
             echo "gcc_ref=${GCC_REF}"
             echo "defconfig=${DEFCONFIG_NAME}"
             echo "config_url=${CONFIG_URL}"
-            echo "use_techpack=${USE_TECHPACK}"
-            echo "techpack_repo=${TECHPACK_REPO}"
-            echo "techpack_branch=${TECHPACK_BRANCH}"
             echo "stub_techpack=${STUB_TECHPACK}"
             echo "ksu_ref=${KSU_REF}"
             echo "enable_susfs=${ENABLE_SUSFS}"

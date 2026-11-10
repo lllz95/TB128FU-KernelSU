@@ -121,12 +121,9 @@ defconfig = P89990JA1-perf_defconfig
 
 | 输入 | 默认 | 作用 | 建议 |
 |---|---|---|---|
-| `use_techpack` | `false` | 主仓库 techpack 不全时，从附加仓库拉取 | 内核树里已有 `techpack/` 时不需要 |
-| `techpack_repo` | 空 | 第三方内核源码仓库链接 | `use_techpack=true` 时必填 |
-| `techpack_branch` | `main` | 附加仓库分支 | |
-| `stub_techpack` | `true` | 编译内核时短路 techpack，避免驱动编进内核 | **保持 true**；内置厂商驱动会触发 TZ/RPM abort |
+| `stub_techpack` | `true` | 编译时短路内核树自带的 `techpack/wlan`、`techpack/audio`，避免厂商驱动编进内核 | **保持 true**；内置会触发 TZ/RPM abort |
 
-`use_techpack` 负责“把源码拿进来”，`stub_techpack` 负责“编译时不要编进去”，两者作用阶段不同。
+内核源码需自带 `techpack/`；本仓库不再从附加仓库补源码。
 
 ### Root / 隐藏
 
