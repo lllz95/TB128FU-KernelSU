@@ -103,6 +103,7 @@ defconfig = P89990JA1-perf_defconfig
 | `toolchain_repo` | AOSP clang prebuilts | 工具链仓库 | 一般不用改 |
 | `toolchain_branch` | 空 | 工具链仓库分支 | 留空自动匹配；也可填 tag 或提交哈希 |
 | `toolchain_ref` | `r450784e` | clang 版本目录名 | **若编译报错，请更换其他版本**（如 `r383902b1`） |
+| `toolchain_url` | 空 | 自定义 clang 工具链 tar.gz 直链 | 可选；填写后优先于仓库下载 |
 | `gcc_repo` | AOSP gcc 4.9 | aarch64 gcc 仓库 | |
 | `gcc_ref` | `main` | gcc 仓库分支 / tag | |
 
@@ -138,7 +139,8 @@ defconfig = P89990JA1-perf_defconfig
 
 | 输入 | 默认 | 作用 | 建议 |
 |---|---|---|---|
-| `ksu_ref` | `v4.2.0-rc3` | ReSukiSU（现名 BakaSU）版本 | 固定版本便于复现 |
+| `enable_ksu` | `true` | 是否集成 ReSukiSU（现名 BakaSU） | 关闭可构建纯内核，用于对照测试 |
+| `ksu_ref` | `v4.2.0-rc3` | ReSukiSU 版本 | 固定版本便于复现 |
 | `enable_susfs` | `false` | 是否添加 SuSFS | 需要隐藏时开启 |
 | `susfs_version` | `default` | `default` = 内置 v2.3.0；`custom` 用自定义补丁 | 优先用 `default` |
 | `susfs_patch_url` | 空 | 自定义 SuSFS 补丁直链 | 仅 `custom` 时使用 |

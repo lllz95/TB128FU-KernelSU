@@ -54,6 +54,10 @@ on:
         description: "原系统配置直链（.config 或 config.gz）；留空则使用源码 defconfig"
         default: ""
         required: false
+      enable_ksu:
+        description: "是否集成 ReSukiSU（关闭则构建纯内核，用于对照）"
+        default: "true"
+        required: false
       stub_techpack:
         description: "编译内核时短路内核树自带的 techpack，避免厂商驱动编进内核"
         default: "true"
@@ -126,6 +130,7 @@ jobs:
       TOOLCHAIN_URL: ${{ github.event.inputs.toolchain_url }}
       DEFCONFIG_NAME: ${{ github.event.inputs.defconfig }}
       CONFIG_URL: ${{ github.event.inputs.config_url }}
+      ENABLE_KSU: ${{ github.event.inputs.enable_ksu || 'true' }}
       STUB_TECHPACK: ${{ github.event.inputs.stub_techpack || 'true' }}
       KSU_REF: ${{ github.event.inputs.ksu_ref || 'v4.2.0-rc3' }}
       ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs || 'false' }}
@@ -300,6 +305,7 @@ jobs:
           done
 
       - name: Integrate ReSukiSU (BakaSU)
+        if: env.ENABLE_KSU == 'true'
         run: |
           set -euxo pipefail
           cd "${KERNEL_ROOT}"
@@ -309,7 +315,7 @@ jobs:
           ls -la KernelSU | head -20
 
       - name: Backport path_umount
-        if: env.ENABLE_PATH_UMOUNT == 'true'
+        if: env.ENABLE_KSU == 'true' && env.ENABLE_PATH_UMOUNT == 'true'
         run: |
           set -euxo pipefail
           cd "${KERNEL_ROOT}"
@@ -317,7 +323,7 @@ jobs:
           grep -n '^int path_umount' fs/namespace.c | head -3
 
       - name: Apply manual hooks (no SuSFS)
-        if: env.ENABLE_SUSFS != 'true'
+        if: env.ENABLE_KSU == 'true' && env.ENABLE_SUSFS != 'true'
         run: |
           set -o pipefail
           cd "${KERNEL_ROOT}"
@@ -327,7 +333,7 @@ jobs:
           test ! -s /tmp/rej-manual.txt
 
       - name: Apply SuSFS
-        if: env.ENABLE_SUSFS == 'true'
+        if: env.ENABLE_KSU == 'true' && env.ENABLE_SUSFS == 'true'
         run: |
           set -o pipefail
           cd "${KERNEL_ROOT}"
@@ -350,7 +356,7 @@ jobs:
           bash "$GITHUB_WORKSPACE/patches/susfs_inline_hook_patches.sh" 2>&1 | tee /tmp/susfs-hooks.log
 
       - name: Hide KernelSU traces (hide_stuff)
-        if: env.ENABLE_HIDE_STUFF == 'true'
+        if: env.ENABLE_KSU == 'true' && env.ENABLE_HIDE_STUFF == 'true'
         run: |
           set -o pipefail
           git clone -q --depth=1 https://github.com/ShirkNeko/SukiSU_patch.git /tmp/SukiSU_patch
@@ -410,6 +416,7 @@ jobs:
           fi
           echo "DEFCONFIG_PATH=${DEF}" >> "$GITHUB_ENV"
 
+          if [ "${ENABLE_KSU}" = "true" ]; then
           {
             echo ''
             echo '# ReSukiSU (BakaSU)'
@@ -434,6 +441,7 @@ jobs:
               echo '# CONFIG_KSU_SUSFS is not set'
             fi
           } >> "$DEF"
+          fi
           echo 'CONFIG_LOCALVERSION="-perf+"' >> "$DEF"
           echo '# CONFIG_MODULE_SIG_FORCE is not set' >> "$DEF"
           tail -20 "$DEF"
@@ -501,6 +509,7 @@ jobs:
             echo "gcc_ref=${GCC_REF}"
             echo "defconfig=${DEFCONFIG_NAME}"
             echo "config_url=${CONFIG_URL}"
+            echo "enable_ksu=${ENABLE_KSU}"
             echo "stub_techpack=${STUB_TECHPACK}"
             echo "ksu_ref=${KSU_REF}"
             echo "enable_susfs=${ENABLE_SUSFS}"
@@ -534,7 +543,7 @@ jobs:
           {
             echo "Kernel: ${KERNEL_RELEASE}"
             echo "defconfig: ${DEFCONFIG_PATH}"
-            echo "toolchain: clang-${TOOLCHAIN_REF}"
+            if [ -n "${TOOLCHAIN_URL:-}" ]; then echo "toolchain: custom (${TOOLCHAIN_URL})"; else echo "toolchain: clang-${TOOLCHAIN_REF}"; fi
             echo "SuSFS: ${ENABLE_SUSFS} (${SUSFS_VERSION})"
             echo "hide_stuff: ${ENABLE_HIDE_STUFF}"
             echo ""
