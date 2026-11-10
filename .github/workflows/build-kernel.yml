@@ -171,17 +171,18 @@ jobs:
             git clone --filter=blob:none --no-checkout --depth 1 -b "${KERNEL_BRANCH}" "${KERNEL_REPO}" src
             cd src
             SPARSE="${KERNEL_SUBDIR:-}"
+            
             if [ -z "$SPARSE" ]; then
-            #判断是否为设备源码树
-              SPARSE=$(git ls-tree -d --name-only HEAD | grep -E '^kernel(-|_)?[0-9]|^kernel$' | head -1 || true)
-              #判断是否为纯内核源码树
-              if [ -z "$SPARSE" ]; then
-                if git ls-tree --name-only HEAD | grep -q '^Makefile$'; then
-                  echo "Detected pure kernel source at root, auto-setting SPARSE to '.'"
-                  SPARSE="."
-                fi
+              #判断是否为内核源码树（通过搜索Makefile）
+              if git ls-tree --name-only HEAD | grep -q '^Makefile$'; then
+                SPARSE="."
+                echo "Detected pure kernel source at root, setting SPARSE to '.'"
+              else
+                #未搜索到Makefile，判断为设备源码树，寻找kernel子目录
+                SPARSE=$(git ls-tree -d --name-only HEAD | grep -E '^kernel(-|_)?[0-9]*|^kernel$' | head -1 || true)
               fi
             fi
+            
             if [ -n "$SPARSE" ]; then
               EXTRA=""
               if git cat-file -e "HEAD:prebuilts/clang/host/linux-x86/clang-${TOOLCHAIN_REF}" 2>/dev/null; then
