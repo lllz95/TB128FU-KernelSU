@@ -146,6 +146,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev \
             python3 git curl zip unzip xz-utils
+          # Snapdragon LLVM 10.0.7 依赖旧版 libtinfo.so.5
+          sudo apt-get install -y libtinfo5 || true
+          if [ ! -e /usr/lib/x86_64-linux-gnu/libtinfo.so.5 ]; then
+            sudo ln -sf /lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+          fi
 
       - name: Fetch kernel source
         run: |
