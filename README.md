@@ -101,10 +101,19 @@ defconfig = P89990JA1-perf_defconfig
 | 输入 | 默认 | 作用 | 建议 |
 |---|---|---|---|
 | `toolchain_repo` | AOSP clang prebuilts | 工具链仓库 | 一般不用改 |
-| `toolchain_branch` | `main` | 工具链仓库分支 | 需要固定时填 tag 或提交哈希 |
+| `toolchain_branch` | 空 | 工具链仓库分支 | 留空自动匹配；也可填 tag 或提交哈希 |
 | `toolchain_ref` | `r450784e` | clang 版本目录名 | **若编译报错，请更换其他版本**（如 `r383902b1`） |
 | `gcc_repo` | AOSP gcc 4.9 | aarch64 gcc 仓库 | |
 | `gcc_ref` | `main` | gcc 仓库分支 / tag | |
+
+`toolchain_branch` 留空时，会依次尝试 `master-kernel-build-2022`、`android-12.0.0_r1`、`android-11.0.0_r1`、`master`、`main` 查找对应版本目录。
+
+常用组合：
+
+| clang 版本 | 所在分支 |
+|---|---|
+| `r450784e` | `master-kernel-build-2022` |
+| `r370808`（原厂同款 clang 10） | `android-11.0.0_r1` |
 
 如果源码仓库自带 `prebuilts/`（例如设备源码包），会优先使用仓库内的 clang 与 gcc；仓库里没有对应版本时才在线下载。
 

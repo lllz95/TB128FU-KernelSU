@@ -26,8 +26,8 @@ on:
         default: "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86"
         required: false
       toolchain_branch:
-        description: "工具链仓库分支（也可填提交哈希）"
-        default: "main"
+        description: "工具链仓库分支（留空自动匹配；也可填提交哈希）"
+        default: ""
         required: false
       toolchain_ref:
         description: "clang 版本目录（如 r450784e）；若编译报错请更换其他版本"
@@ -115,7 +115,7 @@ jobs:
       KERNEL_PKG: ${{ github.event.inputs.kernel_pkg }}
       KERNEL_SUBDIR: ${{ github.event.inputs.kernel_subdir }}
       TOOLCHAIN_REPO: ${{ github.event.inputs.toolchain_repo }}
-      TOOLCHAIN_BRANCH: ${{ github.event.inputs.toolchain_branch || 'main' }}
+      TOOLCHAIN_BRANCH: ${{ github.event.inputs.toolchain_branch || '' }}
       TOOLCHAIN_REF: ${{ github.event.inputs.toolchain_ref || 'r450784e' }}
       GCC_REPO: ${{ github.event.inputs.gcc_repo }}
       GCC_REF: ${{ github.event.inputs.gcc_ref || 'main' }}
@@ -208,24 +208,30 @@ jobs:
           else
             rm -rf /tmp/clangrepo
             FOUND=0
-            for BR in "${TOOLCHAIN_BRANCH}" android-12.0.0_r1 android-11.0.0_r1 master main; do
-              echo "== trying clang branch: $BR =="
+            for BR in ${TOOLCHAIN_BRANCH:-} master-kernel-build-2022 android-12.0.0_r1 android-11.0.0_r1 master main; do
+              [ -n "$BR" ] || continue
+              echo "== trying clang branch/commit: $BR =="
               rm -rf /tmp/clangrepo
-              if ! git clone --filter=blob:none --no-checkout --depth 1 -b "$BR" \
-                   "${TOOLCHAIN_REPO}" /tmp/clangrepo 2>/tmp/clone-clang.err; then
-                echo "branch $BR not available"
-                continue
+              if echo "$BR" | grep -qE '^[0-9a-f]{7,40}$'; then
+                echo "commit hash detected, fetching $BR"
+                git clone --filter=blob:none --no-checkout --depth 1 "${TOOLCHAIN_REPO}" /tmp/clangrepo 2>/tmp/clone-clang.err || { echo "repo clone failed"; continue; }
+                git -C /tmp/clangrepo fetch --depth 1 origin "$BR" 2>>/tmp/clone-clang.err || { echo "commit $BR not available"; continue; }
+                REF=FETCH_HEAD
+              else
+                git clone --filter=blob:none --no-checkout --depth 1 -b "$BR" \
+                  "${TOOLCHAIN_REPO}" /tmp/clangrepo 2>/tmp/clone-clang.err || { echo "branch $BR not available"; continue; }
+                REF=HEAD
               fi
               cd /tmp/clangrepo
-              if git ls-tree -d --name-only HEAD | grep -qx "clang-${TOOLCHAIN_REF}"; then
+              if git ls-tree -d --name-only "$REF" | grep -qx "clang-${TOOLCHAIN_REF}"; then
                 git sparse-checkout init --cone
                 git sparse-checkout set "clang-${TOOLCHAIN_REF}"
-                git checkout
+                git checkout -q "$REF"
                 FOUND=1
-                echo "clang-${TOOLCHAIN_REF} found on branch ${BR}"
+                echo "clang-${TOOLCHAIN_REF} found on ${BR}"
                 break
               fi
-              echo "clang-${TOOLCHAIN_REF} not in branch ${BR}"
+              echo "clang-${TOOLCHAIN_REF} not in ${BR}"
               cd ..
             done
             if [ "$FOUND" != "1" ]; then
