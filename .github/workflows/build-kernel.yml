@@ -95,10 +95,6 @@ on:
         description: "允许 adb shell 读取内核日志（调试用）"
         default: "false"
         required: false
-      force_modules:
-        description: "跳过模块 vermagic/CRC 校验（调试用）"
-        default: "false"
-        required: false
 
 permissions:
   contents: write
@@ -135,7 +131,6 @@ jobs:
       ENABLE_PATH_UMOUNT: ${{ github.event.inputs.enable_path_umount || 'true' }}
       ENABLE_HIDE_STUFF: ${{ github.event.inputs.enable_hide_stuff || 'true' }}
       DEBUG_SYSLOG: ${{ github.event.inputs.debug_syslog || 'false' }}
-      FORCE_MODULES: ${{ github.event.inputs.force_modules || 'false' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -378,19 +373,13 @@ jobs:
           find . -name '*.rej' -print | tee /tmp/hide-rej.txt
           echo "hide_stuff rejects: $(wc -l < /tmp/hide-rej.txt)"
 
-      - name: Optional patches (debug syslog / force modules)
-        if: env.DEBUG_SYSLOG == 'true' || env.FORCE_MODULES == 'true'
+      - name: Debug syslog patch
+        if: env.DEBUG_SYSLOG == 'true'
         run: |
           set -euxo pipefail
           cd "${KERNEL_ROOT}"
-          if [ "${DEBUG_SYSLOG}" = "true" ]; then
-            patch -p1 --no-backup-if-mismatch --forward \
-              < "$GITHUB_WORKSPACE/patches/debug_syslog.patch" 2>&1 | tee /tmp/debug-syslog.log
-          fi
-          if [ "${FORCE_MODULES}" = "true" ]; then
-            patch -p1 --no-backup-if-mismatch --forward \
-              < "$GITHUB_WORKSPACE/patches/module_force_load.patch" 2>&1 | tee /tmp/module-patch.log
-          fi
+          patch -p1 --no-backup-if-mismatch --forward \
+            < "$GITHUB_WORKSPACE/patches/debug_syslog.patch" 2>&1 | tee /tmp/debug-syslog.log
 
       - name: Prepare kernel config
         run: |
@@ -514,7 +503,6 @@ jobs:
             echo "enable_path_umount=${ENABLE_PATH_UMOUNT}"
             echo "enable_hide_stuff=${ENABLE_HIDE_STUFF}"
             echo "debug_syslog=${DEBUG_SYSLOG}"
-            echo "force_modules=${FORCE_MODULES}"
           } > "build-params.txt"
           sha256sum Image.gz modules.tar.gz > SHA256SUMS.txt
           ls -la

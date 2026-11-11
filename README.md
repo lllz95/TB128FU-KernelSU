@@ -17,7 +17,6 @@ patches/
   ksu_manual_hooks_4.19_grass.patch  # 不使用 SuSFS 时的手动 hook
   susfs_v2.3.0_4.19_grass.patch      # SuSFS v2.3.0 内核补丁（内置）
   susfs_inline_hook_patches.sh       # SuSFS inline hook 脚本
-  module_force_load.patch            # 跳过模块 vermagic/CRC 校验（调试用）
   debug_syslog.patch                 # 允许 adb shell 读 dmesg（调试用）
 susfs/
   inotify_mask_backport.py           # 回移 inotify_mark_user_mask()（4.19 没有）
@@ -148,7 +147,6 @@ defconfig = P89990JA1-perf_defconfig
 | `enable_path_umount` | `true` | 回移 `path_umount()` | **4.19 必须保持开启** |
 | `enable_hide_stuff` | `true` | 打 hide_stuff 清理痕迹 | 在所有补丁之后执行 |
 | `debug_syslog` | `false` | 允许 `adb shell dmesg` | 仅调试时开启 |
-| `force_modules` | `false` | 跳过模块 vermagic/CRC 校验 | 仅调试时开启 |
 
 ---
 
