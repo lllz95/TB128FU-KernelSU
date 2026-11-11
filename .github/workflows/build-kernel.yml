@@ -476,7 +476,9 @@ jobs:
           make O=out ARCH=arm64 CC="${CLANG}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" \
             INSTALL_MOD_PATH="$PWD/modout" modules_install 2>&1 | tee -a /tmp/modules.log
           for d in techpack/wlan techpack/audio; do
-            [ -f "$d/Makefile.stubbed" ] && mv "$d/Makefile.stubbed" "$d/Makefile"
+            if [ -f "$d/Makefile.stubbed" ]; then
+              mv "$d/Makefile.stubbed" "$d/Makefile"
+            fi
           done
 
       - name: Collect outputs
