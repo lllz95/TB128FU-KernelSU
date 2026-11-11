@@ -140,6 +140,7 @@ defconfig = P89990JA1-perf_defconfig
 | 输入 | 默认 | 作用 | 建议 |
 |---|---|---|---|
 | `enable_ksu` | `true` | 是否集成 ReSukiSU（现名 BakaSU） | 关闭可构建纯内核，用于对照测试 |
+| `use_eddie_charger` | `false` | 用 Eddie07 的 wt_charger 驱动替换内置充电驱动 | 实验性，用于对比充电行为 |
 | `ksu_ref` | `v4.2.0-rc3` | ReSukiSU 版本 | 固定版本便于复现 |
 | `enable_susfs` | `false` | 是否添加 SuSFS | 需要隐藏时开启 |
 | `susfs_version` | `default` | `default` = 内置 v2.3.0；`custom` 用自定义补丁 | 优先用 `default` |

@@ -58,6 +58,10 @@ on:
         description: "是否集成 ReSukiSU（关闭则构建纯内核，用于对照）"
         default: "true"
         required: false
+      use_eddie_charger:
+        description: "使用 Eddie07 的 wt_charger 驱动替换内置充电驱动（实验）"
+        default: "false"
+        required: false
       stub_techpack:
         description: "编译内核时短路内核树自带的 techpack，避免厂商驱动编进内核"
         default: "true"
@@ -122,6 +126,7 @@ jobs:
       DEFCONFIG_NAME: ${{ github.event.inputs.defconfig }}
       CONFIG_URL: ${{ github.event.inputs.config_url }}
       ENABLE_KSU: ${{ github.event.inputs.enable_ksu || 'true' }}
+      USE_EDDIE_CHARGER: ${{ github.event.inputs.use_eddie_charger || 'false' }}
       STUB_TECHPACK: ${{ github.event.inputs.stub_techpack || 'true' }}
       KSU_REF: ${{ github.event.inputs.ksu_ref || 'v4.2.0-rc3' }}
       ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs || 'false' }}
@@ -286,6 +291,17 @@ jobs:
           fi
           ls "$GCC_BIN/aarch64-linux-android-ld"
           echo "GCC_BIN=${GCC_BIN}" >> "$GITHUB_ENV"
+
+      - name: Replace charger driver (Eddie07 lineage-20.0)
+        if: env.USE_EDDIE_CHARGER == 'true'
+        run: |
+          set -euxo pipefail
+          DST="${KERNEL_ROOT}/drivers/power/supply/wt_charger"
+          [ -d "$DST" ] || { echo "::error::wt_charger directory not found in kernel source"; exit 1; }
+          rm -rf "$DST"
+          mkdir -p "$DST"
+          cp -a "$GITHUB_WORKSPACE/eddie_wt_charger/." "$DST/"
+          ls "$DST"
 
       - name: Stub techpack (avoid building vendor drivers into kernel)
         if: env.STUB_TECHPACK == 'true'
@@ -487,6 +503,7 @@ jobs:
             echo "defconfig=${DEFCONFIG_NAME}"
             echo "config_url=${CONFIG_URL}"
             echo "enable_ksu=${ENABLE_KSU}"
+            echo "use_eddie_charger=${USE_EDDIE_CHARGER}"
             echo "stub_techpack=${STUB_TECHPACK}"
             echo "ksu_ref=${KSU_REF}"
             echo "enable_susfs=${ENABLE_SUSFS}"
