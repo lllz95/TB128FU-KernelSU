@@ -30,8 +30,8 @@ on:
         default: ""
         required: false
       toolchain_ref:
-        description: "clang 版本目录（如 r450784e）；若编译报错请更换其他版本"
-        default: "r450784e"
+        description: "clang 版本目录（默认 r370808，兼容 GNU binutils 2.27）"
+        default: "r370808"
         required: false
       gcc_repo:
         description: "aarch64 gcc 4.9 官方仓库"
@@ -119,7 +119,7 @@ jobs:
       KERNEL_SUBDIR: ${{ github.event.inputs.kernel_subdir }}
       TOOLCHAIN_REPO: ${{ github.event.inputs.toolchain_repo }}
       TOOLCHAIN_BRANCH: ${{ github.event.inputs.toolchain_branch || '' }}
-      TOOLCHAIN_REF: ${{ github.event.inputs.toolchain_ref || 'r450784e' }}
+      TOOLCHAIN_REF: ${{ github.event.inputs.toolchain_ref || 'r370808' }}
       GCC_REPO: ${{ github.event.inputs.gcc_repo }}
       GCC_REF: ${{ github.event.inputs.gcc_ref || 'main' }}
       TOOLCHAIN_URL: ${{ github.event.inputs.toolchain_url }}

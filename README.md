@@ -102,7 +102,7 @@ defconfig = P89990JA1-perf_defconfig
 |---|---|---|---|
 | `toolchain_repo` | AOSP clang prebuilts | 工具链仓库 | 一般不用改 |
 | `toolchain_branch` | 空 | 工具链仓库分支 | 留空自动匹配；也可填 tag 或提交哈希 |
-| `toolchain_ref` | `r450784e` | clang 版本目录名 | **若编译报错，请更换其他版本**（如 `r383902b1`） |
+| `toolchain_ref` | `r370808` | clang 版本目录名 | 默认与 GNU binutils 2.27 兼容；`r450784e` 需要更新 binutils |
 | `toolchain_url` | 空 | 自定义 clang 工具链 tar.gz 直链 | 可选；填写后优先于仓库下载 |
 | `gcc_repo` | AOSP gcc 4.9 | aarch64 gcc 仓库 | |
 | `gcc_ref` | `android-11.0.0_r1` | gcc 仓库 tag | 该仓库 main 分支不含工具链，必须用 tag |
@@ -113,8 +113,8 @@ defconfig = P89990JA1-perf_defconfig
 
 | clang 版本 | 所在分支 |
 |---|---|
-| `r450784e` | `master-kernel-build-2022` |
-| `r370808`（原厂同款 clang 10） | `android-11.0.0_r1` |
+| `r370808`（默认，原厂同款 clang 10） | `android-11.0.0_r1` |
+| `r450784e`（clang 14，需要更新 binutils） | `master-kernel-build-2022` |
 
 如果源码仓库自带 `prebuilts/`（例如设备源码包），会优先使用仓库内的 clang 与 gcc；仓库里没有对应版本时才在线下载。
 
