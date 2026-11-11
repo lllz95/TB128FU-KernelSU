@@ -38,6 +38,17 @@ ak3/
 
 自备内核源码（或设备完整源码，工作流会自动定位内核源码，见 `kernel_subdir`），GitHub 公开仓库或压缩包皆可（压缩包需要上传直链）。
 
+### 充电驱动（可选）
+
+如需使用 Eddie07 的充电驱动（更高充电功率），改用内核仓库的修复分支：
+
+```
+kernel_repo   = https://github.com/lllz95/TB128FU-Kernel
+kernel_branch = charger-fix-from-eddie07
+```
+
+该分支已替换 `drivers/power/supply/wt_charger/`，并补上 `battery/get_charge_type` 节点。
+
 ### 2. 内核配置
 
 **推荐：读取当前系统的配置并上传**
@@ -139,7 +150,6 @@ defconfig = P89990JA1-perf_defconfig
 | 输入 | 默认 | 作用 | 建议 |
 |---|---|---|---|
 | `enable_ksu` | `true` | 是否集成 ReSukiSU（现名 BakaSU） | 关闭可构建纯内核，用于对照测试 |
-| `use_eddie_charger` | `false` | 用 Eddie07 的 wt_charger 驱动替换内置充电驱动 | 实验性，用于对比充电行为 |
 | `ksu_ref` | `v4.2.0-rc3` | ReSukiSU 版本 | 固定版本便于复现 |
 | `enable_susfs` | `false` | 是否添加 SuSFS | 需要隐藏时开启 |
 | `susfs_version` | `default` | `default` = 内置 v2.3.0；`custom` 用自定义补丁 | 优先用 `default` |
