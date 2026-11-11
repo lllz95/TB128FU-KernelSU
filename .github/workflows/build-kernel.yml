@@ -38,8 +38,8 @@ on:
         default: "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
         required: false
       gcc_ref:
-        description: "gcc 仓库分支 / tag"
-        default: "main"
+        description: "gcc 仓库 tag / 分支（默认 android-11.0.0_r1，main 分支不含工具链）"
+        default: "android-11.0.0_r1"
         required: false
       toolchain_url:
         description: "自定义 clang 工具链 tar.gz 直链（可选，优先于仓库下载）"
@@ -95,15 +95,6 @@ on:
         description: "跳过模块 vermagic/CRC 校验（调试用）"
         default: "false"
         required: false
-      # ---------- 构建 ----------
-      ext_modules:
-        description: "是否额外编译外部模块（.ko）"
-        default: "false"
-        required: false
-      ext_module_dirs:
-        description: "外编目录，空格分隔"
-        default: "techpack/wlan"
-        required: false
 
 permissions:
   contents: write
@@ -140,8 +131,6 @@ jobs:
       ENABLE_HIDE_STUFF: ${{ github.event.inputs.enable_hide_stuff || 'true' }}
       DEBUG_SYSLOG: ${{ github.event.inputs.debug_syslog || 'false' }}
       FORCE_MODULES: ${{ github.event.inputs.force_modules || 'false' }}
-      EXT_MODULES: ${{ github.event.inputs.ext_modules || 'false' }}
-      EXT_MODULE_DIRS: ${{ github.event.inputs.ext_module_dirs || 'techpack/wlan' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -280,12 +269,19 @@ jobs:
             GCC_BIN="$SRC_GCC"
             echo "using gcc from source repository: $GCC_BIN"
           else
-            rm -rf /tmp/gccrepo
-            if git clone --depth 1 -b "${GCC_REF}" "${GCC_REPO}" /tmp/gccrepo 2>/tmp/clone-gcc.err; then
-              echo "cloned gcc branch ${GCC_REF}"
-            else
-              git clone --depth 1 "${GCC_REPO}" /tmp/gccrepo
-            fi
+            FOUND_GCC=0
+            for GR in "${GCC_REF}" android-11.0.0_r1 android-10.0.0_r47 master; do
+              [ -n "$GR" ] || continue
+              rm -rf /tmp/gccrepo
+              if git clone --depth 1 -b "$GR" "${GCC_REPO}" /tmp/gccrepo 2>/tmp/clone-gcc.err \
+                 && [ -x /tmp/gccrepo/bin/aarch64-linux-android-ld ]; then
+                echo "cloned gcc ref ${GR}"
+                FOUND_GCC=1
+                break
+              fi
+              echo "gcc ref ${GR} unavailable or incomplete"
+            done
+            [ "$FOUND_GCC" = "1" ] || { echo "::error::could not obtain GNU binutils from gcc repo"; exit 1; }
             GCC_BIN=/tmp/gccrepo/bin
           fi
           ls "$GCC_BIN/aarch64-linux-android-ld"
@@ -466,19 +462,6 @@ jobs:
           for d in techpack/wlan techpack/audio; do
             [ -f "$d/Makefile.stubbed" ] && mv "$d/Makefile.stubbed" "$d/Makefile"
           done
-          if [ "${EXT_MODULES}" = "true" ]; then
-            : > /tmp/ext-ko.txt
-            for d in ${EXT_MODULE_DIRS}; do
-              [ -d "$d" ] || continue
-              extra=""
-              case "$d" in *qcacld*) extra="MODNAME=wlan CONFIG_QCA_CLD_WLAN=m WLAN_ROOT=$PWD/$d" ;; esac
-              make O=out ARCH=arm64 CC="${CLANG}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" \
-                M="$d" $extra -j"$(nproc)" modules 2>&1 | tail -40 || true
-              find "$d" "out/$d" -name '*.ko' -print >> /tmp/ext-ko.txt 2>/dev/null || true
-            done
-            sort -u /tmp/ext-ko.txt -o /tmp/ext-ko.txt || true
-            cat /tmp/ext-ko.txt || true
-          fi
 
       - name: Collect outputs
         run: |
@@ -489,13 +472,6 @@ jobs:
           KREL=$(cat out/include/config/kernel.release)
           echo "KERNEL_RELEASE=${KREL}" >> "$GITHUB_ENV"
           tar -czf "$GITHUB_WORKSPACE/dist/modules.tar.gz" -C "modout/lib/modules/${KREL}" --exclude=build --exclude=source .
-          if [ -s /tmp/ext-ko.txt ]; then
-            mkdir -p "$GITHUB_WORKSPACE/dist/extmods"
-            while read -r ko; do
-              [ -f "$ko" ] && cp "$ko" "$GITHUB_WORKSPACE/dist/extmods/"
-            done < /tmp/ext-ko.txt
-            tar -czf "$GITHUB_WORKSPACE/dist/ext_modules.tar.gz" -C "$GITHUB_WORKSPACE/dist/extmods" .
-          fi
           cd "$GITHUB_WORKSPACE/dist"
           {
             echo "kernel_repo=${KERNEL_REPO}"
@@ -520,8 +496,6 @@ jobs:
             echo "enable_hide_stuff=${ENABLE_HIDE_STUFF}"
             echo "debug_syslog=${DEBUG_SYSLOG}"
             echo "force_modules=${FORCE_MODULES}"
-            echo "ext_modules=${EXT_MODULES}"
-            echo "ext_module_dirs=${EXT_MODULE_DIRS}"
           } > "build-params.txt"
           sha256sum Image.gz modules.tar.gz > SHA256SUMS.txt
           ls -la

@@ -105,7 +105,7 @@ defconfig = P89990JA1-perf_defconfig
 | `toolchain_ref` | `r450784e` | clang 版本目录名 | **若编译报错，请更换其他版本**（如 `r383902b1`） |
 | `toolchain_url` | 空 | 自定义 clang 工具链 tar.gz 直链 | 可选；填写后优先于仓库下载 |
 | `gcc_repo` | AOSP gcc 4.9 | aarch64 gcc 仓库 | |
-| `gcc_ref` | `main` | gcc 仓库分支 / tag | |
+| `gcc_ref` | `android-11.0.0_r1` | gcc 仓库 tag | 该仓库 main 分支不含工具链，必须用 tag |
 
 `toolchain_branch` 留空时，会依次尝试 `master-kernel-build-2022`、`android-12.0.0_r1`、`android-11.0.0_r1`、`master`、`main` 查找对应版本目录。
 
@@ -149,15 +149,6 @@ defconfig = P89990JA1-perf_defconfig
 | `debug_syslog` | `false` | 允许 `adb shell dmesg` | 仅调试时开启 |
 | `force_modules` | `false` | 跳过模块 vermagic/CRC 校验 | 仅调试时开启 |
 
-### 构建
-
-| 输入 | 默认 | 作用 | 建议 |
-|---|---|---|---|
-| `ext_modules` | `false` | 是否额外编译外部模块（`.ko`） | 需要单独加载驱动时开启 |
-| `ext_module_dirs` | `techpack/wlan` | 外编目录，空格分隔 | 如 `techpack/wlan/qcacld-3.0 techpack/audio` |
-
-外部模块不会进入内核镜像，编译后单独输出，使用时 `insmod` 加载。
-
 ---
 
 ## 产物
@@ -167,7 +158,6 @@ defconfig = P89990JA1-perf_defconfig
 | `Image.gz` | 内核镜像 |
 | `build-params.txt` | 本次构建填写的参数记录 |
 | `modules.tar.gz` | 内核内置模块 |
-| `ext_modules.tar.gz` | 外部模块（`ext_modules=true` 时） |
 | `AnyKernel3.zip` | AK3 内核包，使用 REC 或相关工具刷入 |
 | `SHA256SUMS.txt` | 校验值 |
 
