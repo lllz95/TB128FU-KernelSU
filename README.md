@@ -194,11 +194,9 @@ GNU binutils 默认来自 gcc tag `android-11.0.0_r1`（GNU ld 2.27），与 `r3
 
 </details>
 
-<details>
-<summary><b>许可</b></summary>
+**许可**
 
 - SuSFS 内核补丁与 hook 脚本来自 [simonpunk/susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu)（GPL-2.0）与
   [JackA1ltman/NonGKI_Kernel_Build_2nd](https://github.com/JackA1ltman/NonGKI_Kernel_Build_2nd)（GPL-3.0）
 - ReSukiSU / BakaSU 内核部分 GPL-2.0
 
-</details>
