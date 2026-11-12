@@ -1,0 +1,491 @@
+name: Build TB128FU kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      # ---------- 内核源码 ----------
+      kernel_repo:
+        description: "内核源码仓库链接（内核源码仓库或设备源码仓库均可）"
+        default: ""
+        required: false
+      kernel_branch:
+        description: "内核源码分支 / tag"
+        default: "main"
+        required: false
+      kernel_pkg:
+        description: "内核源码包直链（内核源码包或设备源码包均可）"
+        default: ""
+        required: false
+      kernel_subdir:
+        description: "内核所在目录；留空自动识别"
+        default: ""
+        required: false
+      # ---------- 工具链 ----------
+      toolchain_repo:
+        description: "工具链官方仓库（AOSP clang prebuilts）"
+        default: "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86"
+        required: false
+      toolchain_branch:
+        description: "工具链仓库分支（留空自动匹配；也可填提交哈希）"
+        default: ""
+        required: false
+      toolchain_ref:
+        description: "clang 版本目录（默认 r370808，兼容 GNU binutils 2.27）"
+        default: "r370808"
+        required: false
+      gcc_repo:
+        description: "aarch64 gcc 4.9 官方仓库"
+        default: "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
+        required: false
+      gcc_ref:
+        description: "gcc 仓库 tag / 分支（默认 android-11.0.0_r1，main 分支不含工具链）"
+        default: "android-11.0.0_r1"
+        required: false
+      toolchain_url:
+        description: "自定义 clang 工具链 tar.gz 直链（可选，优先于仓库下载）"
+        default: ""
+        required: false
+      # ---------- 内核配置 ----------
+      defconfig:
+        description: "内核源码 arch/arm64/configs 下的 defconfig 名称（只需文件名）"
+        default: ""
+        required: false
+      config_url:
+        description: "原系统配置直链（.config 或 config.gz）；留空则使用源码 defconfig"
+        default: ""
+        required: false
+      enable_ksu:
+        description: "是否集成 ReSukiSU（关闭则构建纯内核，用于对照）"
+        default: "true"
+        required: false
+      stub_techpack:
+        description: "编译内核时短路内核树自带的 techpack，避免厂商驱动编进内核"
+        default: "true"
+        required: false
+      # ---------- Root / 隐藏 ----------
+      ksu_ref:
+        description: "ReSukiSU（现名 BakaSU）版本"
+        default: "v4.2.0-rc3"
+        required: false
+      enable_susfs:
+        description: "是否添加 SuSFS"
+        default: "false"
+        required: false
+      susfs_version:
+        description: "default = 本仓库内置 v2.3.0；custom 时使用下面的补丁直链"
+        default: "default"
+        required: false
+      susfs_patch_url:
+        description: "自定义 SuSFS 内核补丁直链（susfs_version=custom 时）"
+        default: ""
+        required: false
+      enable_path_umount:
+        description: "回移 path_umount（4.19 必需）"
+        default: "true"
+        required: false
+      enable_hide_stuff:
+        description: "打 hide_stuff 清理痕迹（最后执行）"
+        default: "true"
+        required: false
+      debug_syslog:
+        description: "允许 adb shell 读取内核日志（调试用）"
+        default: "false"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KERNEL_REPO: ${{ github.event.inputs.kernel_repo }}
+      KERNEL_BRANCH: ${{ github.event.inputs.kernel_branch || 'main' }}
+      KERNEL_PKG: ${{ github.event.inputs.kernel_pkg }}
+      KERNEL_SUBDIR: ${{ github.event.inputs.kernel_subdir }}
+      TOOLCHAIN_REPO: ${{ github.event.inputs.toolchain_repo }}
+      TOOLCHAIN_BRANCH: ${{ github.event.inputs.toolchain_branch || '' }}
+      TOOLCHAIN_REF: ${{ github.event.inputs.toolchain_ref || 'r370808' }}
+      GCC_REPO: ${{ github.event.inputs.gcc_repo }}
+      GCC_REF: ${{ github.event.inputs.gcc_ref || 'main' }}
+      TOOLCHAIN_URL: ${{ github.event.inputs.toolchain_url }}
+      DEFCONFIG_NAME: ${{ github.event.inputs.defconfig }}
+      CONFIG_URL: ${{ github.event.inputs.config_url }}
+      ENABLE_KSU: ${{ github.event.inputs.enable_ksu || 'true' }}
+      STUB_TECHPACK: ${{ github.event.inputs.stub_techpack || 'true' }}
+      KSU_REF: ${{ github.event.inputs.ksu_ref || 'v4.2.0-rc3' }}
+      ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs || 'false' }}
+      SUSFS_VERSION: ${{ github.event.inputs.susfs_version || 'default' }}
+      SUSFS_PATCH_URL: ${{ github.event.inputs.susfs_patch_url }}
+      ENABLE_PATH_UMOUNT: ${{ github.event.inputs.enable_path_umount || 'true' }}
+      ENABLE_HIDE_STUFF: ${{ github.event.inputs.enable_hide_stuff || 'true' }}
+      DEBUG_SYSLOG: ${{ github.event.inputs.debug_syslog || 'false' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev \
+            python3 git curl zip unzip xz-utils
+          # Snapdragon LLVM 10.0.7 依赖旧版 libtinfo.so.5
+          sudo apt-get install -y libtinfo5 || true
+          if [ ! -e /usr/lib/x86_64-linux-gnu/libtinfo.so.5 ]; then
+            sudo ln -sf /lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+          fi
+
+      - name: Fetch kernel source
+        run: |
+          set -euxo pipefail
+          rm -rf src && mkdir -p src
+          if [ -n "${KERNEL_PKG:-}" ]; then
+            echo "downloading kernel source package: ${KERNEL_PKG}"
+            curl -fL --retry 3 -o /tmp/kernel-src.tar.gz "${KERNEL_PKG}"
+            tar -xf /tmp/kernel-src.tar.gz -C src
+          elif [ -n "${KERNEL_REPO:-}" ]; then
+            echo "cloning kernel source: ${KERNEL_REPO} (${KERNEL_BRANCH})"
+            git clone --filter=blob:none --no-checkout --depth 1 -b "${KERNEL_BRANCH}" "${KERNEL_REPO}" src
+            cd src
+            SPARSE="${KERNEL_SUBDIR:-}"
+            
+            if [ -z "$SPARSE" ]; then
+              # 纯内核源码树：根目录 Makefile 含 VERSION，且存在 arch/arm64
+              if git show HEAD:Makefile 2>/dev/null | grep -qE '^VERSION = [0-9]' \
+                 && git cat-file -e HEAD:arch/arm64 2>/dev/null; then
+                echo "Detected pure kernel source at root; full checkout (no sparse)"
+              else
+                # 设备源码树：寻找 kernel / kernel-4.19.x 子目录
+                SPARSE=$(git ls-tree -d --name-only HEAD | grep -E '^kernel([-_][0-9].*)?$' | head -1 || true)
+              fi
+            fi
+            
+            if [ -n "$SPARSE" ]; then
+              EXTRA=""
+              if git cat-file -e "HEAD:prebuilts/clang/host/linux-x86/clang-${TOOLCHAIN_REF}" 2>/dev/null; then
+                EXTRA="$EXTRA prebuilts/clang/host/linux-x86/clang-${TOOLCHAIN_REF}"
+              fi
+              if git cat-file -e "HEAD:prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9" 2>/dev/null; then
+                EXTRA="$EXTRA prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
+              fi
+              echo "sparse checkout: $SPARSE $EXTRA"
+              git sparse-checkout init --cone
+              git sparse-checkout set $SPARSE $EXTRA
+            fi
+            git checkout
+            cd ..
+            rm -rf src/.git
+          else
+            echo "::error::kernel_repo 和 kernel_pkg 至少填写一个"
+            exit 1
+          fi
+
+      - name: Detect kernel root
+        run: |
+          set -euxo pipefail
+          KROOT=$(python3 scripts/detect_kernel_root.py src "${KERNEL_SUBDIR:-}" | tee /tmp/kroot.txt | tail -1)
+          echo "KERNEL_ROOT=${KROOT}" >> "$GITHUB_ENV"
+          cd "${KROOT}"
+          head -5 Makefile
+          grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL)' Makefile
+
+      - name: Fetch toolchain
+        run: |
+          set -euxo pipefail
+          SRC_CLANG="$GITHUB_WORKSPACE/src/prebuilts/clang/host/linux-x86/clang-${TOOLCHAIN_REF}/bin/clang"
+          SRC_GCC="$GITHUB_WORKSPACE/src/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin"
+          CLANG=""
+          if [ -n "${TOOLCHAIN_URL:-}" ]; then
+            echo "downloading custom toolchain: ${TOOLCHAIN_URL}"
+            rm -rf /tmp/customtc /tmp/tc.tar.gz
+            OK=0
+            for i in $(seq 1 20); do
+              if curl -fL -C - --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/tc.tar.gz "${TOOLCHAIN_URL}"; then
+                OK=1; break
+              fi
+              echo "toolchain download attempt $i failed, retrying..."
+              sleep 5
+            done
+            [ "$OK" = "1" ] || { echo "::error::failed to download toolchain"; exit 1; }
+            mkdir -p /tmp/customtc
+            tar -xf /tmp/tc.tar.gz -C /tmp/customtc
+            CLANG=$(find /tmp/customtc -maxdepth 4 \( -type f -o -type l \) -path "*/bin/clang" | head -1)
+            [ -n "$CLANG" ] && [ -x "$CLANG" ] || { echo "::error::bin/clang not found in toolchain archive"; exit 1; }
+            echo "using custom toolchain clang: $CLANG"
+          elif [ -x "$SRC_CLANG" ]; then
+            CLANG="$SRC_CLANG"
+            echo "using clang from source repository: $CLANG"
+          else
+            rm -rf /tmp/clangrepo
+            FOUND=0
+            for BR in ${TOOLCHAIN_BRANCH:-} master-kernel-build-2022 android-12.0.0_r1 android-11.0.0_r1 master main; do
+              [ -n "$BR" ] || continue
+              echo "== trying clang branch/commit: $BR =="
+              rm -rf /tmp/clangrepo
+              if echo "$BR" | grep -qE '^[0-9a-f]{7,40}$'; then
+                echo "commit hash detected, fetching $BR"
+                git clone --filter=blob:none --no-checkout --depth 1 "${TOOLCHAIN_REPO}" /tmp/clangrepo 2>/tmp/clone-clang.err || { echo "repo clone failed"; continue; }
+                git -C /tmp/clangrepo fetch --depth 1 origin "$BR" 2>>/tmp/clone-clang.err || { echo "commit $BR not available"; continue; }
+                REF=FETCH_HEAD
+              else
+                git clone --filter=blob:none --no-checkout --depth 1 -b "$BR" \
+                  "${TOOLCHAIN_REPO}" /tmp/clangrepo 2>/tmp/clone-clang.err || { echo "branch $BR not available"; continue; }
+                REF=HEAD
+              fi
+              cd /tmp/clangrepo
+              if git ls-tree -d --name-only "$REF" | grep -qx "clang-${TOOLCHAIN_REF}"; then
+                git sparse-checkout init --cone
+                git sparse-checkout set "clang-${TOOLCHAIN_REF}"
+                git checkout -q "$REF"
+                FOUND=1
+                echo "clang-${TOOLCHAIN_REF} found on ${BR}"
+                break
+              fi
+              echo "clang-${TOOLCHAIN_REF} not in ${BR}"
+              cd ..
+            done
+            if [ "$FOUND" != "1" ]; then
+              echo "::error::clang-${TOOLCHAIN_REF} not found (source repo has no prebuilts and online mirror lacks this version)"
+              exit 1
+            fi
+            CLANG="/tmp/clangrepo/clang-${TOOLCHAIN_REF}/bin/clang"
+          fi
+          [ -x "$CLANG" ] || { echo "::error::clang not found"; exit 1; }
+          "$CLANG" --version
+          echo "CLANG=${CLANG}" >> "$GITHUB_ENV"
+
+          if [ -x "$SRC_GCC/aarch64-linux-android-ld" ]; then
+            GCC_BIN="$SRC_GCC"
+            echo "using gcc from source repository: $GCC_BIN"
+          else
+            FOUND_GCC=0
+            for GR in "${GCC_REF}" android-11.0.0_r1 android-10.0.0_r47 master; do
+              [ -n "$GR" ] || continue
+              rm -rf /tmp/gccrepo
+              if git clone --depth 1 -b "$GR" "${GCC_REPO}" /tmp/gccrepo 2>/tmp/clone-gcc.err \
+                 && [ -x /tmp/gccrepo/bin/aarch64-linux-android-ld ]; then
+                echo "cloned gcc ref ${GR}"
+                FOUND_GCC=1
+                break
+              fi
+              echo "gcc ref ${GR} unavailable or incomplete"
+            done
+            [ "$FOUND_GCC" = "1" ] || { echo "::error::could not obtain GNU binutils from gcc repo"; exit 1; }
+            GCC_BIN=/tmp/gccrepo/bin
+          fi
+          ls "$GCC_BIN/aarch64-linux-android-ld"
+          echo "GCC_BIN=${GCC_BIN}" >> "$GITHUB_ENV"
+
+      - name: Stub techpack (avoid building vendor drivers into kernel)
+        if: env.STUB_TECHPACK == 'true'
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          for d in techpack/wlan techpack/audio; do
+            if [ -f "$d/Makefile" ] && [ ! -f "$d/Makefile.stubbed" ]; then
+              mv "$d/Makefile" "$d/Makefile.stubbed"
+              printf 'obj-y :=\n' > "$d/Makefile"
+              echo "stubbed $d"
+            fi
+          done
+
+      - name: Integrate ReSukiSU (BakaSU)
+        if: env.ENABLE_KSU == 'true'
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          curl -fL --retry 3 -o /tmp/resukisu-setup.sh \
+            https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh
+          bash /tmp/resukisu-setup.sh "${KSU_REF}" 2>&1 | tee /tmp/resukisu-setup.log
+          ls -la KernelSU | head -20
+
+      - name: Backport path_umount
+        if: env.ENABLE_KSU == 'true' && env.ENABLE_PATH_UMOUNT == 'true'
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          bash "$GITHUB_WORKSPACE/scripts/path_umount_backport.sh" .
+          grep -n '^int path_umount' fs/namespace.c | head -3
+
+      - name: Apply manual hooks (no SuSFS)
+        if: env.ENABLE_KSU == 'true' && env.ENABLE_SUSFS != 'true'
+        run: |
+          set -o pipefail
+          cd "${KERNEL_ROOT}"
+          patch -p1 -F3 --no-backup-if-mismatch --forward \
+            < "$GITHUB_WORKSPACE/patches/ksu_manual_hooks_4.19_grass.patch" 2>&1 | tee /tmp/manual-hooks.log
+          find . -name '*.rej' -print | tee /tmp/rej-manual.txt
+          test ! -s /tmp/rej-manual.txt
+
+      - name: Apply SuSFS
+        if: env.ENABLE_KSU == 'true' && env.ENABLE_SUSFS == 'true'
+        run: |
+          set -o pipefail
+          cd "${KERNEL_ROOT}"
+          cp fs/notify/fdinfo.c /tmp/fdinfo.c.orig
+          if [ "${SUSFS_VERSION}" = "custom" ]; then
+            [ -n "${SUSFS_PATCH_URL:-}" ] || { echo "::error::susfs_version=custom 但 susfs_patch_url 为空"; exit 1; }
+            curl -fL --retry 3 -o /tmp/susfs.patch "${SUSFS_PATCH_URL}"
+            patch -p1 -F3 --no-backup-if-mismatch --forward < /tmp/susfs.patch 2>&1 | tee /tmp/susfs-patch.log || true
+          else
+            echo "using bundled SuSFS v2.3.0"
+            patch -p1 -F3 --no-backup-if-mismatch --forward \
+              < "$GITHUB_WORKSPACE/patches/susfs_v2.3.0_4.19_grass.patch" 2>&1 | tee /tmp/susfs-patch.log || true
+            cp /tmp/fdinfo.c.orig fs/notify/fdinfo.c
+            python3 "$GITHUB_WORKSPACE/susfs/inotify_mask_backport.py"
+            python3 "$GITHUB_WORKSPACE/susfs/lenovo_4_19_adapt.py"
+            rm -f fs/namespace.c.rej fs/notify/fdinfo.c.rej
+          fi
+          find . -name '*.rej' -print | tee /tmp/rej-susfs.txt
+          echo "susfs rejects: $(wc -l < /tmp/rej-susfs.txt)"
+          bash "$GITHUB_WORKSPACE/patches/susfs_inline_hook_patches.sh" 2>&1 | tee /tmp/susfs-hooks.log
+
+      - name: Hide KernelSU traces (hide_stuff)
+        if: env.ENABLE_KSU == 'true' && env.ENABLE_HIDE_STUFF == 'true'
+        run: |
+          set -o pipefail
+          git clone -q --depth=1 https://github.com/ShirkNeko/SukiSU_patch.git /tmp/SukiSU_patch
+          cd "${KERNEL_ROOT}"
+          patch -p1 -F3 --no-backup-if-mismatch --forward \
+            < /tmp/SukiSU_patch/69_hide_stuff.patch 2>&1 | tee /tmp/hide-stuff.log || true
+          find . -name '*.rej' -print | tee /tmp/hide-rej.txt
+          echo "hide_stuff rejects: $(wc -l < /tmp/hide-rej.txt)"
+
+      - name: Debug syslog patch
+        if: env.DEBUG_SYSLOG == 'true'
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          patch -p1 --no-backup-if-mismatch --forward \
+            < "$GITHUB_WORKSPACE/patches/debug_syslog.patch" 2>&1 | tee /tmp/debug-syslog.log
+
+      - name: Prepare kernel config
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          if [ -n "${CONFIG_URL:-}" ]; then
+            echo "downloading config: ${CONFIG_URL}"
+            rm -f /tmp/stock_config.txt /tmp/config.raw
+            OK=0
+            for i in $(seq 1 15); do
+              if curl -fL -C - --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/config.raw "${CONFIG_URL}"; then
+                OK=1; break
+              fi
+              echo "download attempt $i failed, retrying with resume..."
+              sleep 5
+            done
+            [ "$OK" = "1" ] || { echo "::error::failed to download config"; exit 1; }
+            if [ "$(head -c 2 /tmp/config.raw | od -An -tx1 | tr -d ' \n')" = "1f8b" ]; then
+              gunzip -c /tmp/config.raw > /tmp/stock_config.txt
+            else
+              cp /tmp/config.raw /tmp/stock_config.txt
+            fi
+            grep -q '^CONFIG_' /tmp/stock_config.txt || { echo "::error::downloaded config is not a valid .config"; exit 1; }
+            echo "using uploaded config ($(wc -l < /tmp/stock_config.txt) lines)"
+            cp /tmp/stock_config.txt arch/arm64/configs/stock_defconfig
+            DEF="arch/arm64/configs/stock_defconfig"
+          elif [ -n "${DEFCONFIG_NAME:-}" ]; then
+            DEF="arch/arm64/configs/${DEFCONFIG_NAME}"
+            [ -f "$DEF" ] || { echo "::error::defconfig not found: $DEF"; exit 1; }
+            echo "using source-tree defconfig ${DEFCONFIG_NAME}"
+          else
+            DEF="arch/arm64/configs/P89990JA1-perf_defconfig"
+            [ -f "$DEF" ] || { echo "::error::no config_url and default defconfig not found"; exit 1; }
+            echo "::warning::config_url empty, falling back to source defconfig P89990JA1-perf_defconfig"
+          fi
+          echo "DEFCONFIG_PATH=${DEF}" >> "$GITHUB_ENV"
+
+          if [ "${ENABLE_KSU}" = "true" ]; then
+          {
+            echo ''
+            echo '# ReSukiSU (BakaSU)'
+            echo 'CONFIG_KSU=y'
+            echo 'CONFIG_KSU_MANUAL_HOOK=y'
+            echo 'CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK=y'
+            echo 'CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK=y'
+            echo 'CONFIG_KSU_MANUAL_HOOK_AUTO_INPUT_HOOK=y'
+            echo 'CONFIG_THREAD_INFO_IN_TASK=y'
+            if [ "${ENABLE_SUSFS}" = "true" ]; then
+              echo 'CONFIG_KSU_SUSFS=y'
+              echo 'CONFIG_KSU_SUSFS_SUS_PATH=y'
+              echo 'CONFIG_KSU_SUSFS_SUS_MOUNT=y'
+              echo 'CONFIG_KSU_SUSFS_SUS_KSTAT=y'
+              echo 'CONFIG_KSU_SUSFS_SPOOF_UNAME=y'
+              echo 'CONFIG_KSU_SUSFS_ENABLE_LOG=y'
+              echo 'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y'
+              echo 'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y'
+              echo 'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y'
+              echo 'CONFIG_KSU_SUSFS_SUS_MAP=y'
+            else
+              echo '# CONFIG_KSU_SUSFS is not set'
+            fi
+          } >> "$DEF"
+          fi
+          echo 'CONFIG_LOCALVERSION="-perf+"' >> "$DEF"
+          echo '# CONFIG_MODULE_SIG_FORCE is not set' >> "$DEF"
+          tail -20 "$DEF"
+
+      - name: Build kernel
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          export PATH="${GCC_BIN}:$PATH"
+          CROSS_COMPILE=aarch64-linux-android-
+          CLANG_TRIPLE=aarch64-linux-gnu-
+          make O=out ARCH=arm64 CC="${CLANG}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" \
+            "$(basename "${DEFCONFIG_PATH}")" 2>&1 | tee /tmp/defconfig.log
+          grep -E '^CONFIG_(KSU|KSU_SUSFS|LOCALVERSION|MODULE_SIG)' out/.config | tee /tmp/config-check.txt
+          make O=out ARCH=arm64 CC="${CLANG}" CLANG_TRIPLE="${CLANG_TRIPLE}" CROSS_COMPILE="${CROSS_COMPILE}" \
+            -j"$(nproc)" Image.gz 2>&1 | tee /tmp/build.log
+          for d in techpack/wlan techpack/audio; do
+            if [ -f "$d/Makefile.stubbed" ]; then
+              mv "$d/Makefile.stubbed" "$d/Makefile"
+            fi
+          done
+
+      - name: Collect outputs
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp out/arch/arm64/boot/Image.gz "$GITHUB_WORKSPACE/dist/Image.gz"
+          cd "$GITHUB_WORKSPACE/dist"
+          sha256sum Image.gz > SHA256SUMS.txt
+          ls -la
+
+      - name: Package AnyKernel3
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3work
+          rm -rf ak3work/.git
+          cp "$GITHUB_WORKSPACE/ak3/anykernel.sh" ak3work/anykernel.sh
+          cp "$GITHUB_WORKSPACE/dist/Image.gz" ak3work/Image.gz
+          ZIP="TB128FU-kernel-${GITHUB_RUN_NUMBER}-AnyKernel3.zip"
+          ( cd ak3work && zip -r9 "../dist/${ZIP}" . -x '*.git*' >/dev/null )
+          cd dist && sha256sum "${ZIP}" >> SHA256SUMS.txt && ls -la
+
+      - name: Publish release
+        run: |
+          set -euxo pipefail
+          TAG="build-${GITHUB_RUN_NUMBER}"
+          FILES="dist/*.zip dist/Image.gz dist/SHA256SUMS.txt"
+          gh release create "$TAG" $FILES \
+            --title "TB128FU kernel build #${GITHUB_RUN_NUMBER}" \
+            --notes " " --repo "$GITHUB_REPOSITORY"
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Failure diagnostics
+        if: failure()
+        run: |
+          {
+            echo "### 构建失败"
+            echo '```'
+            tail -60 /tmp/build.log 2>/dev/null || tail -40 /tmp/defconfig.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
