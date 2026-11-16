@@ -14,7 +14,7 @@
 .github/workflows/build-kernel.yml   # 构建工作流
 patches/
   ksu_manual_hooks_4.19_grass.patch  # 不使用 SuSFS 时的手动 hook
-  susfs_v2.3.0_4.19_grass.patch      # SuSFS v2.3.0 内核补丁（内置）
+  susfs_v2.3.0_4.19_resukisu.patch  # ReSukiSU 用 SuSFS v2.3.0 内核补丁
   susfs_inline_hook_patches.sh       # SuSFS inline hook 脚本
   debug_syslog.patch                 # 允许 adb shell 读 dmesg（调试用）
 susfs/
@@ -83,7 +83,7 @@ defconfig = P89990JA1-perf_defconfig
 <details>
 <summary><b>输入参数说明</b></summary>
 
-共 21 个输入。
+共 23 个输入。
 
 <details>
 <summary><b>内核源码</b></summary>
@@ -170,7 +170,9 @@ GNU binutils 默认来自 gcc tag `android-11.0.0_r1`（GNU ld 2.27），与 `r3
 
 | 输入 | 默认 | 作用 | 建议 |
 |---|---|---|---|
-| `enable_ksu` | `true` | 是否集成 ReSukiSU（现名 BakaSU） | 关闭可构建纯内核，用于对照测试 |
+| `enable_ksu` | `true` | 是否集成 Root | 关闭可构建纯内核，用于对照测试 |
+| `ksu_impl` | `resukisu` | Root 方案 | `resukisu` 或 `rksu` |
+| `rksu_ref` | `v3.2.2-10-legacy` | RKSU 版本（tag 或分支） | `ksu_impl=rksu` 时使用 |
 | `ksu_ref` | `v4.2.0-rc3` | ReSukiSU 版本 | 可自行选择适合版本 |
 | `enable_susfs` | `false` | 是否添加 SuSFS | 需要隐藏时开启 |
 | `susfs_version` | `default` | `default` = 内置 v2.3.0；`custom` 用自定义补丁 | 优先用 `default` |

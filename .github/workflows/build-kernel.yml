@@ -55,8 +55,16 @@ on:
         default: ""
         required: false
       enable_ksu:
-        description: "是否集成 ReSukiSU（关闭则构建纯内核，用于对照）"
+        description: "是否集成 Root（关闭则构建纯内核，用于对照）"
         default: "true"
+        required: false
+      ksu_impl:
+        description: "Root 方案：resukisu 或 rksu"
+        default: "resukisu"
+        required: false
+      rksu_ref:
+        description: "RKSU 版本（tag 或分支）"
+        default: "v3.2.2-10-legacy"
         required: false
       stub_techpack:
         description: "编译内核时短路内核树自带的 techpack，避免厂商驱动编进内核"
@@ -118,6 +126,8 @@ jobs:
       DEFCONFIG_NAME: ${{ github.event.inputs.defconfig }}
       CONFIG_URL: ${{ github.event.inputs.config_url }}
       ENABLE_KSU: ${{ github.event.inputs.enable_ksu || 'true' }}
+      KSU_IMPL: ${{ github.event.inputs.ksu_impl || 'resukisu' }}
+      RKSU_REF: ${{ github.event.inputs.rksu_ref || 'v3.2.2-10-legacy' }}
       STUB_TECHPACK: ${{ github.event.inputs.stub_techpack || 'true' }}
       KSU_REF: ${{ github.event.inputs.ksu_ref || 'v4.2.0-rc3' }}
       ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs || 'false' }}
@@ -296,7 +306,7 @@ jobs:
           done
 
       - name: Integrate ReSukiSU (BakaSU)
-        if: env.ENABLE_KSU == 'true'
+        if: env.ENABLE_KSU == 'true' && env.KSU_IMPL == 'resukisu'
         run: |
           set -euxo pipefail
           cd "${KERNEL_ROOT}"
@@ -304,6 +314,23 @@ jobs:
             https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh
           bash /tmp/resukisu-setup.sh "${KSU_REF}" 2>&1 | tee /tmp/resukisu-setup.log
           ls -la KernelSU | head -20
+
+      - name: Integrate RKSU
+        if: env.ENABLE_KSU == 'true' && env.KSU_IMPL == 'rksu'
+        run: |
+          set -euxo pipefail
+          cd "${KERNEL_ROOT}"
+          rm -rf KernelSU
+          git clone --depth 1 -b "${RKSU_REF}" https://github.com/rksuorg/KernelSU.git KernelSU
+          ln -sfn ../KernelSU/kernel drivers/kernelsu
+          grep -q 'kernelsu' drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig || \
+            sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          curl -fL --retry 3 -o /tmp/rksu-hooks.patch \
+            https://raw.githubusercontent.com/rksuorg/kernel_patches/master/manual_hook/kernel-4.19_5.4.patch
+          patch -p1 -F3 --no-backup-if-mismatch --forward < /tmp/rksu-hooks.patch 2>&1 | tee /tmp/rksu-hooks.log
+          find . -name '*.rej' -print | tee /tmp/rej-rksu.txt
+          test ! -s /tmp/rej-rksu.txt
 
       - name: Backport path_umount
         if: env.ENABLE_KSU == 'true' && env.ENABLE_PATH_UMOUNT == 'true'
@@ -314,7 +341,7 @@ jobs:
           grep -n '^int path_umount' fs/namespace.c | head -3
 
       - name: Apply manual hooks (no SuSFS)
-        if: env.ENABLE_KSU == 'true' && env.ENABLE_SUSFS != 'true'
+        if: env.ENABLE_KSU == 'true' && env.KSU_IMPL == 'resukisu' && env.ENABLE_SUSFS != 'true'
         run: |
           set -o pipefail
           cd "${KERNEL_ROOT}"
@@ -324,7 +351,7 @@ jobs:
           test ! -s /tmp/rej-manual.txt
 
       - name: Apply SuSFS
-        if: env.ENABLE_KSU == 'true' && env.ENABLE_SUSFS == 'true'
+        if: env.ENABLE_KSU == 'true' && env.KSU_IMPL == 'resukisu' && env.ENABLE_SUSFS == 'true'
         run: |
           set -o pipefail
           cd "${KERNEL_ROOT}"
@@ -336,7 +363,7 @@ jobs:
           else
             echo "using bundled SuSFS v2.3.0"
             patch -p1 -F3 --no-backup-if-mismatch --forward \
-              < "$GITHUB_WORKSPACE/patches/susfs_v2.3.0_4.19_grass.patch" 2>&1 | tee /tmp/susfs-patch.log || true
+              < "$GITHUB_WORKSPACE/patches/susfs_v2.3.0_4.19_resukisu.patch" 2>&1 | tee /tmp/susfs-patch.log || true
             cp /tmp/fdinfo.c.orig fs/notify/fdinfo.c
             python3 "$GITHUB_WORKSPACE/susfs/inotify_mask_backport.py"
             python3 "$GITHUB_WORKSPACE/susfs/lenovo_4_19_adapt.py"
@@ -347,7 +374,7 @@ jobs:
           bash "$GITHUB_WORKSPACE/patches/susfs_inline_hook_patches.sh" 2>&1 | tee /tmp/susfs-hooks.log
 
       - name: Hide KernelSU traces (hide_stuff)
-        if: env.ENABLE_KSU == 'true' && env.ENABLE_HIDE_STUFF == 'true'
+        if: env.ENABLE_KSU == 'true' && env.KSU_IMPL == 'resukisu' && env.ENABLE_HIDE_STUFF == 'true'
         run: |
           set -o pipefail
           git clone -q --depth=1 https://github.com/ShirkNeko/SukiSU_patch.git /tmp/SukiSU_patch
@@ -401,7 +428,25 @@ jobs:
           fi
           echo "DEFCONFIG_PATH=${DEF}" >> "$GITHUB_ENV"
 
+          case "${KSU_IMPL}" in
+            resukisu|rksu) ;;
+            *) echo "::error::ksu_impl 只能是 resukisu 或 rksu"; exit 1 ;;
+          esac
+
+          if [ "${ENABLE_KSU}" = "true" ] && [ "${KSU_IMPL}" = "rksu" ] && [ "${ENABLE_SUSFS}" = "true" ]; then
+            echo "::error::RKSU 的 SuSFS 补丁尚未集成，请先设置 enable_susfs=false"
+            exit 1
+          fi
+
           if [ "${ENABLE_KSU}" = "true" ]; then
+            if [ "${KSU_IMPL}" = "rksu" ]; then
+              {
+                echo ''
+                echo '# RKSU'
+                echo 'CONFIG_KSU=y'
+                echo 'CONFIG_THREAD_INFO_IN_TASK=y'
+              } >> "$DEF"
+            else
           {
             echo ''
             echo '# ReSukiSU (BakaSU)'
@@ -426,6 +471,7 @@ jobs:
               echo '# CONFIG_KSU_SUSFS is not set'
             fi
           } >> "$DEF"
+            fi
           fi
           echo 'CONFIG_LOCALVERSION="-perf+"' >> "$DEF"
           echo '# CONFIG_MODULE_SIG_FORCE is not set' >> "$DEF"
