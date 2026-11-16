@@ -1,0 +1,20 @@
+--- a/kernel/printk/printk.c
++++ b/kernel/printk/printk.c
+@@ -661,6 +661,7 @@
+ static int syslog_action_restricted(int type)
+ {
++	return 0; /* debug: let adb shell read the kernel log */
+ 	if (dmesg_restrict)
+ 		return 1;
+ 	/*
+ 	 * Unless restricted, we allow "read all" and "get buffer size"
+--- a/security/selinux/hooks.c
++++ b/security/selinux/hooks.c
+@@ -2385,6 +2385,7 @@
+ static int selinux_syslog(int type)
+ {
++	return 0; /* debug: let adb shell read the kernel log */
+ 	switch (type) {
+ 	case SYSLOG_ACTION_READ_ALL:	/* Read last kernel messages */
+ 	case SYSLOG_ACTION_SIZE_BUFFER:	/* Return size of the log buffer */
+ 		return avc_has_perm(&selinux_state,
