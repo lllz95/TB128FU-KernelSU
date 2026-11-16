@@ -381,6 +381,9 @@ jobs:
               patch -p1 -F3 --no-backup-if-mismatch --forward \
                 < "$GITHUB_WORKSPACE/patches/rksu_susfs_compat.patch" 2>&1 | tee /tmp/rksu-susfs-compat.log
             fi
+            if [ "${KSU_IMPL}" = "rksu" ]; then
+              python3 "$GITHUB_WORKSPACE/susfs/rksu_susfs_ext.py"
+            fi
             cp /tmp/fdinfo.c.orig fs/notify/fdinfo.c
             python3 "$GITHUB_WORKSPACE/susfs/inotify_mask_backport.py"
             python3 "$GITHUB_WORKSPACE/susfs/lenovo_4_19_adapt.py"
@@ -463,6 +466,7 @@ jobs:
                   echo 'CONFIG_KSU_SUSFS_SUS_MOUNT=y'
                   echo 'CONFIG_KSU_SUSFS_SUS_KSTAT=y'
                   echo 'CONFIG_KSU_SUSFS_SPOOF_UNAME=y'
+                  echo 'CONFIG_KSU_SUSFS_TRY_UMOUNT=y'
                   echo 'CONFIG_KSU_SUSFS_ENABLE_LOG=y'
                   echo 'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y'
                   echo 'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y'

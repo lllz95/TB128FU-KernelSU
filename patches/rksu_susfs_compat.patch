@@ -1,7 +1,18 @@
 --- a/drivers/kernelsu/supercalls.c
 +++ b/drivers/kernelsu/supercalls.c
-@@ -723,10 +723,12 @@
+@@ -713,6 +713,7 @@
+ 			susfs_add_sus_path_loop(arg);
+ 			return 0;
  		}
++#ifdef SUSFS_HAS_SET_I_STATE_ON_EXTERNAL_DIR
+ 		if (cmd == CMD_SUSFS_SET_ANDROID_DATA_ROOT_PATH) {
+ 			susfs_set_i_state_on_external_dir(arg);
+ 			return 0;
+@@ -721,12 +722,15 @@
+ 			susfs_set_i_state_on_external_dir(arg);
+ 			return 0;
+ 		}
++#endif
  #endif //#ifdef CONFIG_KSU_SUSFS_SUS_PATH
  #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 +#ifdef CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS
