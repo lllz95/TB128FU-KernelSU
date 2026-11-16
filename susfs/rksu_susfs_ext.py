@@ -159,19 +159,26 @@ void susfs_try_umount(uid_t uid) {
 /* spoof_uname */""",
 )
 
-# 5. namespace.c: extend hide condition to all-procs
-old_cond = """\tif (static_branch_likely(&susfs_is_hide_sus_mnts_for_non_su_procs_enabled)) {
-\t\tif (likely(!susfs_is_current_ksu_domain()))"""
-new_cond = """\tif (static_branch_likely(&susfs_is_hide_sus_mnts_for_all_procs_enabled) ||
-\t    (static_branch_likely(&susfs_is_hide_sus_mnts_for_non_su_procs_enabled) &&
-\t     (likely(!susfs_is_current_ksu_domain())))) {"""
-patch("fs/namespace.c", old_cond, new_cond, 3)
-
+# 5. KSU selinux: treat all procs as non-ksu when all-procs hiding is on
 patch(
-    "fs/namespace.c",
-    "extern struct static_key_false susfs_is_hide_sus_mnts_for_non_su_procs_enabled;",
-    "extern struct static_key_false susfs_is_hide_sus_mnts_for_non_su_procs_enabled;\n"
-    "extern struct static_key_false susfs_is_hide_sus_mnts_for_all_procs_enabled;",
+    "drivers/kernelsu/selinux/selinux.c",
+    """bool susfs_is_current_ksu_domain(void)
+{
+\treturn unlikely(current_sid() == susfs_ksu_sid);
+}""",
+    """#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+#include <linux/jump_label.h>
+extern struct static_key_false susfs_is_hide_sus_mnts_for_all_procs_enabled;
+#endif
+
+bool susfs_is_current_ksu_domain(void)
+{
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+\tif (static_branch_likely(&susfs_is_hide_sus_mnts_for_all_procs_enabled))
+\t\treturn false;
+#endif
+\treturn unlikely(current_sid() == susfs_ksu_sid);
+}""",
 )
 
 print("rksu susfs ext: ok")
