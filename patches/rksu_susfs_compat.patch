@@ -1,5 +1,5 @@
---- a/kernel/supercalls.c
-+++ b/kernel/supercalls.c
+--- a/drivers/kernelsu/supercalls.c
++++ b/drivers/kernelsu/supercalls.c
 @@ -723,10 +723,12 @@
  		}
  #endif //#ifdef CONFIG_KSU_SUSFS_SUS_PATH
