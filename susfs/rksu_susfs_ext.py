@@ -181,4 +181,47 @@ bool susfs_is_current_ksu_domain(void)
 }""",
 )
 
+# 6. fs/susfs.c: newer APIs used by RKSU setuid hook
+patch(
+    "fs/susfs.c",
+    '#include "mount.h"\n#include <linux/mount.h>',
+    '#include "mount.h"\n#include <linux/mount.h>\n#include <linux/nsproxy.h>',
+)
+
+# existing 2.3.0 helper becomes the uid-aware variant RKSU calls
+patch(
+    "fs/susfs.c",
+    "static void susfs_run_sus_path_loop(void) {",
+    "void susfs_run_sus_path_loop(uid_t uid) {",
+)
+patch(
+    "fs/susfs.c",
+    "susfs_run_sus_path_loop();",
+    "susfs_run_sus_path_loop(current_uid().val);",
+)
+
+patch(
+    "fs/susfs.c",
+    "/* susfs_init */",
+    """#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+void susfs_reorder_mnt_id(void) {
+\tstruct mnt_namespace *mnt_ns = current->nsproxy->mnt_ns;
+\tstruct mount *mnt;
+\tint first_mnt_id = 0;
+
+\tif (!mnt_ns || list_empty(&mnt_ns->list))
+\t\treturn;
+
+\tfirst_mnt_id = list_first_entry(&mnt_ns->list, struct mount, mnt_list)->mnt_id;
+\tlist_for_each_entry(mnt, &mnt_ns->list, mnt_list) {
+\t\tif (mnt->mnt_id == DEFAULT_KSU_MNT_ID)
+\t\t\tcontinue;
+\t\tWRITE_ONCE(mnt->mnt_id, first_mnt_id++);
+\t}
+}
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+
+/* susfs_init */""",
+)
+
 print("rksu susfs ext: ok")
