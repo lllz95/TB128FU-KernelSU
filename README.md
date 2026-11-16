@@ -3,8 +3,8 @@
 联想小新 Pad 2022（TB128FU / P89990JA1 / grass / SM6225）的内核构建工作流。
 
 - 内核基线：Linux 4.19.157
-- Root：ReSukiSU（现已改名 **BakaSU**）
-- 隐藏：可选 SuSFS v2.3.0 + `path_umount` 回移 + `hide_stuff`
+- Root：**RKSU**（默认）；可选 ReSukiSU / BakaSU
+- 隐藏：SuSFS（当前仅 ReSukiSU 路径支持）+ `path_umount` 回移
 - 工具链：优先源码自带 prebuilts，其次在线 AOSP clang + GNU binutils，也支持自定义 tar.gz
 
 <details>
@@ -15,6 +15,7 @@
 patches/
   ksu_manual_hooks_4.19_grass.patch  # 不使用 SuSFS 时的手动 hook
   susfs_v2.3.0_4.19_resukisu.patch  # ReSukiSU 用 SuSFS v2.3.0 内核补丁
+  susfs_v2.3.0_4.19_rksu.patch      # RKSU 用 SuSFS v2.3.0 内核补丁
   susfs_inline_hook_patches.sh       # SuSFS inline hook 脚本
   debug_syslog.patch                 # 允许 adb shell 读 dmesg（调试用）
 susfs/
@@ -38,6 +39,34 @@ ak3/
 <summary><b>内核源码</b></summary>
 
 自备内核源码（或设备完整源码，工作流会自动定位内核源码，见 `kernel_subdir`），GitHub 公开仓库或压缩包皆可（压缩包需要上传直链）。
+
+</details>
+
+<details>
+<summary><b>Root 方案（RKSU / ReSukiSU）</b></summary>
+
+默认使用 **RKSU**：
+
+- 克隆 `rksuorg/KernelSU`，链接到 `drivers/kernelsu`
+- 应用 `rksuorg/kernel_patches` 的 4.19 手动 hook 补丁
+- 写入配置：
+  ```
+  CONFIG_KSU=y
+  CONFIG_THREAD_INFO_IN_TASK=y
+  ```
+
+也可以切回 ReSukiSU：
+
+```
+ksu_impl = resukisu
+```
+
+ReSukiSU 路径会使用 BakaSU 的 `setup.sh`，并支持 SuSFS 与 hide_stuff。
+
+`enable_susfs=true` 对两种方案都生效：
+
+- RKSU：自动改用 `rksu_susfs_ref`（默认 `susfs-rksu-master`）
+- ReSukiSU：使用内置 SuSFS v2.3.0 补丁
 
 </details>
 
@@ -83,7 +112,7 @@ defconfig = P89990JA1-perf_defconfig
 <details>
 <summary><b>输入参数说明</b></summary>
 
-共 23 个输入。
+共 24 个输入。
 
 <details>
 <summary><b>内核源码</b></summary>
@@ -171,10 +200,11 @@ GNU binutils 默认来自 gcc tag `android-11.0.0_r1`（GNU ld 2.27），与 `r3
 | 输入 | 默认 | 作用 | 建议 |
 |---|---|---|---|
 | `enable_ksu` | `true` | 是否集成 Root | 关闭可构建纯内核，用于对照测试 |
-| `ksu_impl` | `resukisu` | Root 方案 | `resukisu` 或 `rksu` |
-| `rksu_ref` | `v3.2.2-10-legacy` | RKSU 版本（tag 或分支） | `ksu_impl=rksu` 时使用 |
+| `ksu_impl` | `rksu` | Root 方案 | 默认 RKSU，可切 `resukisu` |
+| `rksu_ref` | `v3.2.2-10-legacy` | RKSU 版本（tag 或分支） | `ksu_impl=rksu` 且关闭 SuSFS 时使用 |
+| `rksu_susfs_ref` | `susfs-rksu-master` | RKSU 的 SuSFS 分支 | `ksu_impl=rksu` 且开启 SuSFS 时使用 |
 | `ksu_ref` | `v4.2.0-rc3` | ReSukiSU 版本 | 可自行选择适合版本 |
-| `enable_susfs` | `false` | 是否添加 SuSFS | 需要隐藏时开启 |
+| `enable_susfs` | `false` | 是否添加 SuSFS | 两种方案都支持 |
 | `susfs_version` | `default` | `default` = 内置 v2.3.0；`custom` 用自定义补丁 | 优先用 `default` |
 | `susfs_patch_url` | 空 | 自定义 SuSFS 补丁直链 | 仅 `custom` 时使用 |
 | `enable_path_umount` | `true` | 回移 `path_umount()` | **4.19 必须保持开启** |

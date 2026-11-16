@@ -59,12 +59,16 @@ on:
         default: "true"
         required: false
       ksu_impl:
-        description: "Root 方案：resukisu 或 rksu"
-        default: "resukisu"
+        description: "Root 方案：rksu（默认）或 resukisu"
+        default: "rksu"
         required: false
       rksu_ref:
         description: "RKSU 版本（tag 或分支）"
         default: "v3.2.2-10-legacy"
+        required: false
+      rksu_susfs_ref:
+        description: "RKSU 的 SuSFS 分支"
+        default: "susfs-rksu-master"
         required: false
       stub_techpack:
         description: "编译内核时短路内核树自带的 techpack，避免厂商驱动编进内核"
@@ -126,8 +130,9 @@ jobs:
       DEFCONFIG_NAME: ${{ github.event.inputs.defconfig }}
       CONFIG_URL: ${{ github.event.inputs.config_url }}
       ENABLE_KSU: ${{ github.event.inputs.enable_ksu || 'true' }}
-      KSU_IMPL: ${{ github.event.inputs.ksu_impl || 'resukisu' }}
+      KSU_IMPL: ${{ github.event.inputs.ksu_impl || 'rksu' }}
       RKSU_REF: ${{ github.event.inputs.rksu_ref || 'v3.2.2-10-legacy' }}
+      RKSU_SUSFS_REF: ${{ github.event.inputs.rksu_susfs_ref || 'susfs-rksu-master' }}
       STUB_TECHPACK: ${{ github.event.inputs.stub_techpack || 'true' }}
       KSU_REF: ${{ github.event.inputs.ksu_ref || 'v4.2.0-rc3' }}
       ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs || 'false' }}
@@ -321,7 +326,11 @@ jobs:
           set -euxo pipefail
           cd "${KERNEL_ROOT}"
           rm -rf KernelSU
-          git clone --depth 1 -b "${RKSU_REF}" https://github.com/rksuorg/KernelSU.git KernelSU
+          REF="${RKSU_REF}"
+          if [ "${ENABLE_SUSFS}" = "true" ]; then
+            REF="${RKSU_SUSFS_REF}"
+          fi
+          git clone --depth 1 -b "${REF}" https://github.com/rksuorg/KernelSU.git KernelSU
           ln -sfn ../KernelSU/kernel drivers/kernelsu
           grep -q 'kernelsu' drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
           grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig || \
@@ -351,7 +360,7 @@ jobs:
           test ! -s /tmp/rej-manual.txt
 
       - name: Apply SuSFS
-        if: env.ENABLE_KSU == 'true' && env.KSU_IMPL == 'resukisu' && env.ENABLE_SUSFS == 'true'
+        if: env.ENABLE_KSU == 'true' && env.ENABLE_SUSFS == 'true'
         run: |
           set -o pipefail
           cd "${KERNEL_ROOT}"
@@ -361,9 +370,13 @@ jobs:
             curl -fL --retry 3 -o /tmp/susfs.patch "${SUSFS_PATCH_URL}"
             patch -p1 -F3 --no-backup-if-mismatch --forward < /tmp/susfs.patch 2>&1 | tee /tmp/susfs-patch.log || true
           else
-            echo "using bundled SuSFS v2.3.0"
-            patch -p1 -F3 --no-backup-if-mismatch --forward \
-              < "$GITHUB_WORKSPACE/patches/susfs_v2.3.0_4.19_resukisu.patch" 2>&1 | tee /tmp/susfs-patch.log || true
+            if [ "${KSU_IMPL}" = "rksu" ]; then
+              SUSFS_PATCH="${GITHUB_WORKSPACE}/patches/susfs_v2.3.0_4.19_rksu.patch"
+            else
+              SUSFS_PATCH="${GITHUB_WORKSPACE}/patches/susfs_v2.3.0_4.19_resukisu.patch"
+            fi
+            echo "using bundled SuSFS v2.3.0 (${KSU_IMPL})"
+            patch -p1 -F3 --no-backup-if-mismatch --forward < "${SUSFS_PATCH}" 2>&1 | tee /tmp/susfs-patch.log || true
             cp /tmp/fdinfo.c.orig fs/notify/fdinfo.c
             python3 "$GITHUB_WORKSPACE/susfs/inotify_mask_backport.py"
             python3 "$GITHUB_WORKSPACE/susfs/lenovo_4_19_adapt.py"
@@ -433,11 +446,6 @@ jobs:
             *) echo "::error::ksu_impl 只能是 resukisu 或 rksu"; exit 1 ;;
           esac
 
-          if [ "${ENABLE_KSU}" = "true" ] && [ "${KSU_IMPL}" = "rksu" ] && [ "${ENABLE_SUSFS}" = "true" ]; then
-            echo "::error::RKSU 的 SuSFS 补丁尚未集成，请先设置 enable_susfs=false"
-            exit 1
-          fi
-
           if [ "${ENABLE_KSU}" = "true" ]; then
             if [ "${KSU_IMPL}" = "rksu" ]; then
               {
@@ -445,6 +453,19 @@ jobs:
                 echo '# RKSU'
                 echo 'CONFIG_KSU=y'
                 echo 'CONFIG_THREAD_INFO_IN_TASK=y'
+                if [ "${ENABLE_SUSFS}" = "true" ]; then
+                  echo 'CONFIG_KSU_SUSFS=y'
+                  echo 'CONFIG_KSU_SUSFS_SUS_PATH=y'
+                  echo 'CONFIG_KSU_SUSFS_SUS_MOUNT=y'
+                  echo 'CONFIG_KSU_SUSFS_SUS_KSTAT=y'
+                  echo 'CONFIG_KSU_SUSFS_SPOOF_UNAME=y'
+                  echo 'CONFIG_KSU_SUSFS_TRY_UMOUNT=y'
+                  echo 'CONFIG_KSU_SUSFS_ENABLE_LOG=y'
+                  echo 'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y'
+                  echo 'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y'
+                  echo 'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y'
+                  echo 'CONFIG_KSU_SUSFS_SUS_MAP=y'
+                fi
               } >> "$DEF"
             else
           {
