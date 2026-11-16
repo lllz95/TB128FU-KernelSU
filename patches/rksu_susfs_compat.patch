@@ -1,0 +1,15 @@
+--- a/kernel/supercalls.c
++++ b/kernel/supercalls.c
+@@ -723,10 +723,12 @@
+ 		}
+ #endif //#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+ #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
++#ifdef CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS
+ 		if (cmd == CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS) {
+ 			susfs_set_hide_sus_mnts_for_all_procs(arg);
+ 			return 0;
+ 		}
++#endif
+ #endif //#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+ #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+ 		if (cmd == CMD_SUSFS_ADD_SUS_KSTAT) {
